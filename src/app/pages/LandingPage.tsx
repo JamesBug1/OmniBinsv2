@@ -101,7 +101,7 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
   };
 
   return (
-    <nav className="sticky top-0 z-50 bg-gray-50/80 backdrop-blur-md shadow-sm">
+    <nav className="sticky top-0 z-50 bg-gray-50/40 backdrop-blur-md shadow-sm">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between ">
           <button onClick={handleLogoClick} className="flex items-center gap-2 cursor-pointer">
@@ -149,7 +149,9 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
 
 function HeroSection({ onLoginClick }: { onLoginClick: () => void }) {
   return (
-    <div className="relative overflow-hidden bg-gray-50 py-24 sm:py-50">
+    <div className="relative overflow-hidden bg-cover bg-center py-24 sm:py-50" 
+    style={{ backgroundImage: "url('/world.jpg')" }}>
+      <div className="absolute inset-0 bg-slate-950/30" />
       <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="mx-auto max-w-3xl text-center">
           <div className="mb-8 flex justify-center gap-4">
@@ -164,13 +166,13 @@ function HeroSection({ onLoginClick }: { onLoginClick: () => void }) {
             ))}
           </div>
 
-          <h1 className="mb-6 text-5xl font-extrabold tracking-tight text-gray-900 sm:text-6xl lg:text-7xl">OMNIBINS</h1>
-          <p className="mb-4 text-xl text-gray-900 sm:text-2xl">IoT-Based Smart Waste Management System</p>
-          <p className="mb-10 text-lg text-gray-900">Real-Time Load Sensing & Odor-Triggered Neutralization</p>
+          <h1 className="mb-6 text-5xl font-extrabold tracking-tight text-white sm:text-6xl lg:text-7xl">OMNIBINS</h1>
+          <p className="mb-4 text-xl text-white sm:text-2xl">IoT-Based Smart Waste Management System</p>
+          <p className="mb-10 text-lg text-white">Real-Time Load Sensing & Odor-Triggered Neutralization</p>
 
           <div className="flex flex-col gap-4 sm:flex-row sm:justify-center ">
             <Button size="lg" className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onLoginClick}>Get Started</Button>
-            <Button size="lg" variant="outline"className="cursor-pointer" onClick={() => alert('Demo video coming soon!')}>Watch Demo</Button>
+            <Button size="lg" className="bg-white hover:bg-gray-100 text-gray-900 cursor-pointer" onClick={() => alert('Demo video coming soon!')}>Watch Demo</Button>
           </div>
         </motion.div>
 
@@ -532,7 +534,7 @@ function FooterSection() {
               </li>
               <li className="flex items-center gap-2">
                 <MapPin className="h-4 w-4" />
-                123 Smart City Ave
+                Argao Cebu
               </li>
             </ul>
           </div>
@@ -603,7 +605,7 @@ function ContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                     </div>
                     <div>
                       <p className="text-xs text-gray-500">Address</p>
-                      <p className="text-sm font-medium text-gray-900">123 Smart City Ave</p>
+                      <p className="text-sm font-medium text-gray-900">Argao Cebu</p>
                     </div>
                   </div>
                 </div>
