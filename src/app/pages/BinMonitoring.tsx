@@ -5,14 +5,14 @@
 // ============================================================================
 // IMPORTS
 // ============================================================================
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { useState, useEffect, useRef } from 'react';
+import { motion } from 'motion/react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Search, MapPin, Weight, Wind, X } from 'lucide-react';
+import { Search, MapPin, Weight, Wind, Clock, User, CheckCircle, AlertCircle, Truck } from 'lucide-react';
 
 // ============================================================================
 // DATA & CONSTANTS
@@ -29,189 +29,73 @@ const initialBins = [
   { id: 'BIN-009', location: 'Downtown Station', weight: 2.1, capacity: 4, nh3: 1, ch4: 2, status: 'Empty' },
 ];
 
+const collectionsData = [
+  { id: 1, bin: 'BIN-001', location: 'Main Street Plaza', priority: 'high', status: 'pending', assignedTo: null as string | null, capacity: 95, scheduledTime: 'ASAP', completedAt: undefined as string | undefined },
+  { id: 2, bin: 'BIN-003', location: 'Central Plaza', priority: 'high', status: 'in-progress', assignedTo: 'Team A', capacity: 85, scheduledTime: '10:00 AM', completedAt: undefined },
+  { id: 3, bin: 'BIN-007', location: 'University Campus', priority: 'high', status: 'pending', assignedTo: null as string | null, capacity: 97, scheduledTime: 'ASAP', completedAt: undefined },
+  { id: 4, bin: 'BIN-005', location: 'Shopping District', priority: 'medium', status: 'pending', assignedTo: null as string | null, capacity: 78, scheduledTime: '2:00 PM', completedAt: undefined },
+  { id: 5, bin: 'BIN-008', location: 'Market Square', priority: 'low', status: 'completed', assignedTo: 'Team B', capacity: 68, scheduledTime: '8:00 AM', completedAt: '8:45 AM' },
+  { id: 6, bin: 'BIN-002', location: 'Park Avenue', priority: 'low', status: 'completed', assignedTo: 'Team A', capacity: 48, scheduledTime: '9:00 AM', completedAt: '9:30 AM' },
+];
+
+const teams = ['Team A', 'Team B', 'Team C'];
+
 // ============================================================================
 // MODAL COMPONENTS
 // ============================================================================
-const AddBinModal = ({ isOpen, onClose, onAddBin }: { isOpen: boolean; onClose: () => void; onAddBin: (bin: any) => void }) => {
-  const [binId, setBinId] = useState('');
-  const [location, setLocation] = useState('');
-  const [team, setTeam] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!binId || !location) {
-      alert('Please fill in all required fields');
-      return;
-    }
-    
-    const newBin = {
-      id: binId,
-      location,
-      weight: 0,
-      capacity: 0,
-      nh3: 0,
-      ch4: 0,
-      status: 'Normal',
-    };
-    
-    onAddBin(newBin);
-    alert(`Bin ${binId} added successfully at ${location}`);
-    setBinId('');
-    setLocation('');
-    setTeam('');
-    onClose();
-  };
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-white/30 backdrop-blur-sm z-40"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-3xl shadow-2xl p-6 z-50 w-full max-w-md"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-900">Add New Bin</h3>
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1">
-                  Bin ID
-                </label>
-                <Input
-                  placeholder="e.g., BIN-010"
-                  value={binId}
-                  onChange={(e) => setBinId(e.target.value)}
-                  className="text-gray-900"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1">
-                  Location
-                </label>
-                <Input
-                  placeholder="e.g., Main Street Plaza"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className="text-gray-900"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1">
-                  Assigned Team
-                </label>
-                <Input
-                  placeholder="e.g., Team A"
-                  value={team}
-                  onChange={(e) => setTeam(e.target.value)}
-                  className="text-gray-900"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-4">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 px-4 py-2 text-gray-900 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors font-medium"
-                >
-                  Add Bin
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
-function ConfirmationModal({ isOpen, onClose, onConfirm, title, message }: { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string }) {
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-white/30 backdrop-blur-sm z-40"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-3xl shadow-2xl p-6 z-50 w-full max-w-md"
-          >
-            <h3 className="text-lg font-bold text-gray-900 mb-2">{title}</h3>
-            <p className="text-gray-700 mb-6">{message}</p>
-            <div className="flex gap-3">
-              <Button type="button" variant="outline" onClick={onClose} className="flex-1 text-sm cursor-pointer">
-                Cancel
-              </Button>
-              <Button type="button" onClick={onConfirm} className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm cursor-pointer">
-                Confirm
-              </Button>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-}
-
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 export function BinMonitoring() {
+  const collectionSectionRef = useRef<HTMLDivElement | null>(null);
   const [bins, setBins] = useState(initialBins);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  const [taskList, setTaskList] = useState(collectionsData);
+  const [taskFilter, setTaskFilter] = useState<string>('all');
 
-  const handleAddBin = (newBin: any) => {
-    setBins([...bins, newBin]);
+  const getCollectionStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Badge className="bg-yellow-500 text-white">Pending</Badge>;
+      case 'in-progress':
+        return <Badge className="bg-blue-500 text-white">In Progress</Badge>;
+      case 'completed':
+        return <Badge className="bg-green-500 text-white">Completed</Badge>;
+      default:
+        return <Badge className="bg-gray-500 text-white">Unknown</Badge>;
+    }
   };
 
-  const handleRemoveBin = (binId: string) => {
-    setConfirmAction({
-      title: 'Remove Bin',
-      message: `Are you sure you want to remove bin ${binId}? This action cannot be undone.`,
-      onConfirm: () => {
-        setBins(bins.filter(b => b.id !== binId));
-        setIsConfirmOpen(false);
-        alert(`Bin ${binId} has been removed`);
-      }
-    });
-    setIsConfirmOpen(true);
+  const getPriorityBadge = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return <Badge variant="destructive">High</Badge>;
+      case 'medium':
+        return <Badge className="bg-yellow-500 text-white">Medium</Badge>;
+      default:
+        return <Badge className="bg-gray-500 text-white">Low</Badge>;
+    }
+  };
+
+  const assignTeam = (taskId: number, team: string) => {
+    setTaskList(prev => prev.map(task => task.id === taskId ? { ...task, assignedTo: team, status: 'in-progress' } : task));
+  };
+
+  const completeTask = (taskId: number) => {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    setTaskList(prev => prev.map(task => task.id === taskId ? { ...task, status: 'completed', completedAt: timeString } : task));
+  };
+
+  const filteredTasks = taskList.filter(task => {
+    if (taskFilter === 'all') return true;
+    return task.status === taskFilter;
+  });
+
+  const collectionStats = {
+    pending: taskList.filter(t => t.status === 'pending').length,
+    inProgress: taskList.filter(t => t.status === 'in-progress').length,
+    completed: taskList.filter(t => t.status === 'completed').length,
   };
 
   useEffect(() => {
@@ -247,47 +131,37 @@ export function BinMonitoring() {
   };
 
   const filteredBins = bins.filter(bin => {
-    const matchesSearch = bin.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          bin.location.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter = filterStatus === 'all' || bin.status === filterStatus;
-    return matchesSearch && matchesFilter;
+    return (
+      bin.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      bin.location.toLowerCase().includes(searchQuery.toLowerCase())
+    );
   });
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Smart Bin Monitoring</h2>
-          <p className="text-gray-900 font-semibold">Real-time monitoring of all smart bins</p>
+          <h2 className="text-2xl font-bold text-gray-900">Bin Monitoring & Collections</h2>
+          <p className="text-gray-900 font-semibold">Real-time bin status and collection task management in one view</p>
         </div>
 
-          <div className="relative">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+          <div className="relative w-full sm:w-[320px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-700" />
             <Input
               placeholder="Search Bins..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 text-gray-900 font-medium text-sm w-full sm:w-55"
+              className="pl-9 text-gray-900 font-medium text-sm w-full"
             />
           </div>
-        
-      </div>
-
-      {/* Filter buttons */}
-      <div className="flex flex-wrap gap-2 cursor">
-        {['all', 'Normal', 'Near Full', 'Full', 'High Gas Level'].map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilterStatus(status)}
-            className= {`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-              filterStatus === status
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-50 text-gray-900 border border-gray-800 hover:bg-gray-100'
-            }`}
+          <Button
+            onClick={() => collectionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            className="h-11 whitespace-nowrap bg-green-600 hover:bg-green-700 text-white"
           >
-            {status === 'all' ? 'All Bins' : status}
-          </button>
-        ))}
+            Go to Collections
+          </Button>
+        </div>
       </div>
 
       {/* Bins Grid */}
@@ -352,6 +226,113 @@ export function BinMonitoring() {
             </Card>
           </motion.div>
         ))}
+      </div>
+
+      <div ref={collectionSectionRef} className="pt-10 border-t border-gray-200 space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Collections & Task Management</h2>
+            <p className="text-gray-900 font-semibold">Manage collection assignments and monitor progress from the same dashboard</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { label: 'Pending', value: collectionStats.pending, icon: AlertCircle, color: 'text-yellow-500' },
+            { label: 'In Progress', value: collectionStats.inProgress, icon: Truck, color: 'text-blue-500' },
+            { label: 'Completed', value: collectionStats.completed, icon: CheckCircle, color: 'text-green-500' },
+          ].map((stat) => (
+            <Card key={stat.label}>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-900 font-semibold">{stat.label}</p>
+                    <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                  </div>
+                  <stat.icon className={`h-8 w-8 ${stat.color}`} />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {['all', 'pending', 'in-progress', 'completed'].map((status) => (
+            <button
+              key={status}
+              onClick={() => setTaskFilter(status)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                taskFilter === status
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-50 text-gray-700 border hover:bg-gray-100'
+              }`}
+            >
+              {status === 'all' ? 'All Tasks' : status === 'in-progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-3">
+          {filteredTasks.map((task, index) => (
+            <motion.div key={task.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: index * 0.05 }}>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-bold">{task.bin}</p>
+                          {getPriorityBadge(task.priority)}
+                          {getCollectionStatusBadge(task.status)}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                        <div className="flex items-center gap-1">
+                          <MapPin className="h-4 w-4" />
+                          {task.location}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-4 w-4" />
+                          {task.scheduledTime}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Truck className="h-4 w-4" />
+                          <span>Capacity: {task.capacity}%</span>
+                        </div>
+                        {task.assignedTo && (
+                          <div className="flex items-center gap-1">
+                            <User className="h-4 w-4" />
+                            <span>{task.assignedTo}</span>
+                          </div>
+                        )}
+                        {task.completedAt && (
+                          <div className="flex items-center gap-1 text-green-800">
+                            <CheckCircle className="h-4 w-4" />
+                            <span>Completed at {task.completedAt}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {task.status === 'pending' && teams.map(team => (
+                        <Button key={team} size="sm" onClick={() => assignTeam(task.id, team)} className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">
+                          <Truck className="h-4 w-4 mr-2" />
+                          {team}
+                        </Button>
+                      ))}
+                      {task.status === 'in-progress' && (
+                        <Button size="sm" onClick={() => completeTask(task.id)} className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Mark Complete
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
       </div>
 
     </div>

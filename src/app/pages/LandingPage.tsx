@@ -102,8 +102,8 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
 
   return (
     <nav className="sticky top-0 z-50 bg-gray-50/40 backdrop-blur-md shadow-sm">
-      <div className="mx-auto max-w-7xl px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between ">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between">
           <button onClick={handleLogoClick} className="flex items-center gap-2 cursor-pointer">
             <div className="rounded-lg bg-green-600 p-2 hover:box-shadow-gray-600 ">
               <Trash2 className="h-6 w-6 text-white" />
