@@ -169,8 +169,17 @@ export function DashboardLayout({ onLogout }: DashboardLayoutProps) {
       {/* Main content */}
       
       <div className="lg:pl-64">
-        {/* Top bar */} 
-
+        {/* Top bar */}
+        <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-4 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
 
         {/* Page content */}
         <main className="p-6">
