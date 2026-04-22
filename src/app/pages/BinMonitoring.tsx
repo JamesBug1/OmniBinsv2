@@ -5,14 +5,14 @@
 // ============================================================================
 // IMPORTS
 // ============================================================================
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Search, MapPin, Weight, Wind, Clock, User, CheckCircle, AlertCircle, Truck } from 'lucide-react';
+import { Search, MapPin, Weight, Wind, User } from 'lucide-react';
 
 // ============================================================================
 // DATA & CONSTANTS
@@ -47,11 +47,9 @@ const teams = ['Team A', 'Team B', 'Team C'];
 // MAIN COMPONENT
 // ============================================================================
 export function BinMonitoring() {
-  const collectionSectionRef = useRef<HTMLDivElement | null>(null);
   const [bins, setBins] = useState(initialBins);
   const [searchQuery, setSearchQuery] = useState('');
   const [taskList, setTaskList] = useState(collectionsData);
-  const [taskFilter, setTaskFilter] = useState<string>('all');
 
   const getCollectionStatusBadge = (status: string) => {
     switch (status) {
@@ -66,6 +64,8 @@ export function BinMonitoring() {
     }
   };
 
+  const getTaskForBin = (binId: string) => taskList.find(task => task.bin === binId);
+
   const getPriorityBadge = (priority: string) => {
     switch (priority) {
       case 'high':
@@ -79,23 +79,6 @@ export function BinMonitoring() {
 
   const assignTeam = (taskId: number, team: string) => {
     setTaskList(prev => prev.map(task => task.id === taskId ? { ...task, assignedTo: team, status: 'in-progress' } : task));
-  };
-
-  const completeTask = (taskId: number) => {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    setTaskList(prev => prev.map(task => task.id === taskId ? { ...task, status: 'completed', completedAt: timeString } : task));
-  };
-
-  const filteredTasks = taskList.filter(task => {
-    if (taskFilter === 'all') return true;
-    return task.status === taskFilter;
-  });
-
-  const collectionStats = {
-    pending: taskList.filter(t => t.status === 'pending').length,
-    inProgress: taskList.filter(t => t.status === 'in-progress').length,
-    completed: taskList.filter(t => t.status === 'completed').length,
   };
 
   useEffect(() => {
@@ -114,6 +97,22 @@ export function BinMonitoring() {
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setTaskList(prev => prev.map(task => {
+      const bin = bins.find((bin) => bin.id === task.bin);
+      if (!bin) return task;
+
+      const shouldAutoComplete = bin.weight < 20 && bin.status === 'Normal';
+      if (shouldAutoComplete && task.status !== 'completed') {
+        const now = new Date();
+        const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        return { ...task, status: 'completed', completedAt: timeString };
+      }
+
+      return task;
+    }));
+  }, [bins]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -155,12 +154,6 @@ export function BinMonitoring() {
               className="pl-9 text-gray-900 font-medium text-sm w-full"
             />
           </div>
-          <Button
-            onClick={() => collectionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            className="h-11 whitespace-nowrap bg-green-600 hover:bg-green-700 text-white"
-          >
-            Go to Collections
-          </Button>
         </div>
       </div>
 
@@ -222,119 +215,45 @@ export function BinMonitoring() {
                     <p className="text-lg font-bold">{bin.ch4.toFixed(1)} ppm</p>
                   </div>
                 </div>
+
+                <div className="pt-4 border-t">
+                  <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                    <span className="font-medium">Collection status</span>
+                    <span className="font-medium">Assigned team</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center gap-2">
+                      {getTaskForBin(bin.id)
+                        ? getCollectionStatusBadge(getTaskForBin(bin.id)!.status)
+                        : <Badge className="bg-gray-500 text-white">No task</Badge>}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-700">
+                      <User className="h-4 w-4 text-gray-400" />
+                      <span>{getTaskForBin(bin.id)?.assignedTo ?? 'Unassigned'}</span>
+                    </div>
+                  </div>
+
+                  {getTaskForBin(bin.id) && getTaskForBin(bin.id)!.status === 'pending' && (
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {teams.map((team) => (
+                        <Button
+                          key={team}
+                          size="sm"
+                          onClick={() => assignTeam(getTaskForBin(bin.id)!.id, team)}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          {team}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+
+                </div>
               </CardContent>
             </Card>
           </motion.div>
         ))}
       </div>
-
-      <div ref={collectionSectionRef} className="pt-10 border-t border-gray-200 space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Collections & Task Management</h2>
-            <p className="text-gray-900 font-semibold">Manage collection assignments and monitor progress from the same dashboard</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
-            { label: 'Pending', value: collectionStats.pending, icon: AlertCircle, color: 'text-yellow-500' },
-            { label: 'In Progress', value: collectionStats.inProgress, icon: Truck, color: 'text-blue-500' },
-            { label: 'Completed', value: collectionStats.completed, icon: CheckCircle, color: 'text-green-500' },
-          ].map((stat) => (
-            <Card key={stat.label}>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-900 font-semibold">{stat.label}</p>
-                    <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                  </div>
-                  <stat.icon className={`h-8 w-8 ${stat.color}`} />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {['all', 'pending', 'in-progress', 'completed'].map((status) => (
-            <button
-              key={status}
-              onClick={() => setTaskFilter(status)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                taskFilter === status
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-50 text-gray-700 border hover:bg-gray-100'
-              }`}
-            >
-              {status === 'all' ? 'All Tasks' : status === 'in-progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-3">
-          {filteredTasks.map((task, index) => (
-            <motion.div key={task.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: index * 0.05 }}>
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-bold">{task.bin}</p>
-                          {getPriorityBadge(task.priority)}
-                          {getCollectionStatusBadge(task.status)}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <MapPin className="h-4 w-4" />
-                          {task.location}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          {task.scheduledTime}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Truck className="h-4 w-4" />
-                          <span>Capacity: {task.capacity}%</span>
-                        </div>
-                        {task.assignedTo && (
-                          <div className="flex items-center gap-1">
-                            <User className="h-4 w-4" />
-                            <span>{task.assignedTo}</span>
-                          </div>
-                        )}
-                        {task.completedAt && (
-                          <div className="flex items-center gap-1 text-green-800">
-                            <CheckCircle className="h-4 w-4" />
-                            <span>Completed at {task.completedAt}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {task.status === 'pending' && teams.map(team => (
-                        <Button key={team} size="sm" onClick={() => assignTeam(task.id, team)} className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">
-                          <Truck className="h-4 w-4 mr-2" />
-                          {team}
-                        </Button>
-                      ))}
-                      {task.status === 'in-progress' && (
-                        <Button size="sm" onClick={() => completeTask(task.id)} className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Mark Complete
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-
     </div>
   );
 }
