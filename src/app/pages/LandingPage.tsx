@@ -150,7 +150,7 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
 function HeroSection({ onLoginClick }: { onLoginClick: () => void }) {
   return (
     <div className="relative overflow-hidden bg-cover bg-center py-24 sm:py-50" 
-    style={{ backgroundImage: "url('/world.jpg')" }}>
+    style={{ backgroundImage: "url('/BgImage.png')" }}>
       <div className="absolute inset-0 bg-slate-950/30" />
       <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="mx-auto max-w-3xl text-center">
