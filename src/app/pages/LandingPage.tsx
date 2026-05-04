@@ -16,8 +16,9 @@ import {
   Gauge, Bell, BarChart3, MapPin, Smartphone, 
   Radio, Cloud, TrendingUp, DollarSign, Leaf, 
   Clock, Users, Shield, Zap, Phone, AlertCircle, 
-  CheckCircle, Google
+  CheckCircle
 } from 'lucide-react';
+import { FcGoogle } from 'react-icons/fc';
 import { signInWithEmail, signInWithGoogle, getIdToken } from '../../firebase';
 
 interface LandingPageProps {
@@ -120,7 +121,7 @@ function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
 
                 <div className="grid gap-3 pt-2">
                   <Button type="button" className="w-full border border-gray-300 bg-white text-gray-900 hover:bg-gray-50" onClick={handleGoogleSignIn} disabled={isLoading}>
-                    <Google className="mr-2 inline-block h-4 w-4" />
+                    <FcGoogle className="mr-2 inline-block h-4 w-4" />
                     Continue with Google
                   </Button>
                 </div>

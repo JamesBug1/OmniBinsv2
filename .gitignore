@@ -2,6 +2,7 @@ node_modules/
 venv/
 firebase-key.json
 __pycache__/
-.envfirebase-debug.log
+.env
 firebase-debug.log
 backend/*.json
+.env

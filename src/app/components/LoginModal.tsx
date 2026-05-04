@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Mail, Lock, Google } from 'lucide-react';
+import { X, Mail, Lock } from 'lucide-react';
+import { FcGoogle } from 'react-icons/fc';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { signInWithEmail, signInWithGoogle, getIdToken } from '../../firebase';
@@ -157,7 +158,7 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
                     onClick={handleGoogleSignIn}
                     disabled={isLoading}
                   >
-                    <Google className="mr-2 inline-block h-4 w-4" />
+                    <FcGoogle className="mr-2 inline-block h-4 w-4" />
                     Continue with Google
                   </Button>
                 </div>
