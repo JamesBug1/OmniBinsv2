@@ -4,3 +4,4 @@ firebase-key.json
 __pycache__/
 .envfirebase-debug.log
 firebase-debug.log
+backend/*.json
