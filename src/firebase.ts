@@ -72,3 +72,91 @@ export async function getIdToken(): Promise<string | null> {
   const user = auth.currentUser;
   return user ? user.getIdToken() : null;
 }
+
+// ============================================================================
+// API FUNCTIONS - Connect to Flask Backend
+// ============================================================================
+
+const API_BASE_URL = 'http://localhost:5002'; // Update this to your backend URL
+
+async function apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
+  const token = await getIdToken();
+  if (!token) {
+    throw new Error('No authentication token available');
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Network error' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// USER MANAGEMENT API
+// ============================================================================
+
+export async function addUser(userData: {
+  name: string;
+  email: string;
+  phone?: string;
+  team: string;
+  role?: string;
+}): Promise<any> {
+  return apiRequest('/users', {
+    method: 'POST',
+    body: JSON.stringify(userData),
+  });
+}
+
+export async function getUsers(): Promise<any> {
+  return apiRequest('/users');
+}
+
+// ============================================================================
+// BIN MANAGEMENT API
+// ============================================================================
+
+export async function addBin(binData: {
+  id: string;
+  location: string;
+  capacity: number;
+  status?: string;
+}): Promise<any> {
+  return apiRequest('/bins', {
+    method: 'POST',
+    body: JSON.stringify(binData),
+  });
+}
+
+export async function getBins(): Promise<any> {
+  return apiRequest('/bins');
+}
+
+// ============================================================================
+// TEAM MANAGEMENT API
+// ============================================================================
+
+export async function createTeam(teamData: {
+  name: string;
+  workerIds: number[];
+}): Promise<any> {
+  return apiRequest('/teams', {
+    method: 'POST',
+    body: JSON.stringify(teamData),
+  });
+}
+
+export async function getTeams(): Promise<any> {
+  return apiRequest('/teams');
+}

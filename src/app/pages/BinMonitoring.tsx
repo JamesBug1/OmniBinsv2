@@ -17,28 +17,10 @@ import { Search, MapPin, Weight, Wind, User } from 'lucide-react';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const initialBins = [
-  { id: 'BIN-001', location: 'Main Street Plaza', weight: 45.2, capacity: 92, nh3: 38, ch4: 42, status: 'Full' },
-  { id: 'BIN-002', location: 'Park Avenue', weight: 22.5, capacity: 48, nh3: 15, ch4: 18, status: 'Normal' },
-  { id: 'BIN-003', location: 'Central Plaza', weight: 41.8, capacity: 85, nh3: 32, ch4: 38, status: 'Near Full' },
-  { id: 'BIN-004', location: 'Beach Road', weight: 12.3, capacity: 25, nh3: 8, ch4: 12, status: 'Normal' },
-  { id: 'BIN-005', location: 'Shopping District', weight: 38.7, capacity: 78, nh3: 28, ch4: 32, status: 'Near Full' },
-  { id: 'BIN-006', location: 'City Hall', weight: 35.2, capacity: 71, nh3: 25, ch4: 28, status: 'Normal' },
-  { id: 'BIN-007', location: 'University Campus', weight: 48.1, capacity: 97, nh3: 45, ch4: 48, status: 'Full' },
-  { id: 'BIN-008', location: 'Market Square', weight: 33.5, capacity: 68, nh3: 22, ch4: 26, status: 'Normal' },
-  { id: 'BIN-009', location: 'Downtown Station', weight: 2.1, capacity: 4, nh3: 1, ch4: 2, status: 'Empty' },
-];
-
-const collectionsData = [
-  { id: 1, bin: 'BIN-001', location: 'Main Street Plaza', priority: 'high', status: 'pending', assignedTo: null as string | null, capacity: 95, scheduledTime: 'ASAP', completedAt: undefined as string | undefined },
-  { id: 2, bin: 'BIN-003', location: 'Central Plaza', priority: 'high', status: 'in-progress', assignedTo: 'Team A', capacity: 85, scheduledTime: '10:00 AM', completedAt: undefined },
-  { id: 3, bin: 'BIN-007', location: 'University Campus', priority: 'high', status: 'pending', assignedTo: null as string | null, capacity: 97, scheduledTime: 'ASAP', completedAt: undefined },
-  { id: 4, bin: 'BIN-005', location: 'Shopping District', priority: 'medium', status: 'pending', assignedTo: null as string | null, capacity: 78, scheduledTime: '2:00 PM', completedAt: undefined },
-  { id: 5, bin: 'BIN-008', location: 'Market Square', priority: 'low', status: 'completed', assignedTo: 'Team B', capacity: 68, scheduledTime: '8:00 AM', completedAt: '8:45 AM' },
-  { id: 6, bin: 'BIN-002', location: 'Park Avenue', priority: 'low', status: 'completed', assignedTo: 'Team A', capacity: 48, scheduledTime: '9:00 AM', completedAt: '9:30 AM' },
-];
-
-const teams = ['Team A', 'Team B', 'Team C'];
+// Sample data removed - connect to your database for live bin data
+const initialBins: any[] = [];
+const collectionsData: any[] = [];
+const teams: string[] = [];
 
 // ============================================================================
 // MODAL COMPONENTS

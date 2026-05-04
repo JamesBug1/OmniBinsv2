@@ -6,24 +6,9 @@ import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Trash2, AlertCircle, CheckCircle, TrendingUp } from 'lucide-react';
 
-const binData = [
-  { id: 'BIN-001', location: 'Main Street', fillLevel: 85, odorLevel: 'High', status: 'urgent' },
-  { id: 'BIN-002', location: 'Park Avenue', fillLevel: 45, odorLevel: 'Low', status: 'normal' },
-  { id: 'BIN-003', location: 'Central Plaza', fillLevel: 92, odorLevel: 'Medium', status: 'urgent' },
-  { id: 'BIN-004', location: 'Beach Road', fillLevel: 23, odorLevel: 'Low', status: 'normal' },
-  { id: 'BIN-005', location: 'Shopping District', fillLevel: 67, odorLevel: 'Medium', status: 'warning' },
-  { id: 'BIN-006', location: 'City Hall', fillLevel: 78, odorLevel: 'High', status: 'warning' },
-];
+const binData: any[] = [];
 
-const weeklyData = [
-  { day: 'Mon', collections: 12, weight: 450 },
-  { day: 'Tue', collections: 15, weight: 520 },
-  { day: 'Wed', collections: 18, weight: 610 },
-  { day: 'Thu', collections: 14, weight: 480 },
-  { day: 'Fri', collections: 20, weight: 680 },
-  { day: 'Sat', collections: 16, weight: 550 },
-  { day: 'Sun', collections: 10, weight: 380 },
-];
+const weeklyData: any[] = [];
 
 export function Dashboard() {
   const [activeData, setActiveData] = useState(binData);

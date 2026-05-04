@@ -12,35 +12,11 @@ import { TrendingUp, Clock, MapPin, Droplet } from 'lucide-react';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const weeklyTrend = [
-  { week: 'Week 1', collections: 85, weight: 3200 },
-  { week: 'Week 2', collections: 92, weight: 3450 },
-  { week: 'Week 3', collections: 88, weight: 3300 },
-  { week: 'Week 4', collections: 95, weight: 3600 },
-];
-
-const topBins = [
-  { bin: 'BIN-001', fills: 24 },
-  { bin: 'BIN-007', fills: 22 },
-  { bin: 'BIN-003', fills: 20 },
-  { bin: 'BIN-005', fills: 18 },
-  { bin: 'BIN-008', fills: 16 },
-];
-
-const areaData = [
-  { area: 'Downtown', avgRotIndex: 6.8 },
-  { area: 'Commercial', avgRotIndex: 5.2 },
-  { area: 'Residential', avgRotIndex: 4.1 },
-  { area: 'Parks', avgRotIndex: 3.5 },
-];
-
-const responseTime = [
-  { name: 'Under 30 min', value: 45 },
-  { name: '30-60 min', value: 30 },
-  { name: '1-2 hours', value: 15 },
-  { name: 'Over 2 hours', value: 10 },
-];
-
+// Sample data removed - connect to your database for live analytics data
+const weeklyTrend: any[] = [];
+const topBins: any[] = [];
+const areaData: any[] = [];
+const responseTime: any[] = [];
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
 
 // ============================================================================

@@ -15,16 +15,9 @@ import { Truck, MapPin, Clock, User, CheckCircle, AlertCircle } from 'lucide-rea
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const collectionsData = [
-  { id: 1, bin: 'BIN-001', location: 'Main Street Plaza', priority: 'high', status: 'pending', assignedTo: null as string | null, capacity: 95, scheduledTime: 'ASAP', completedAt: undefined as string | undefined },
-  { id: 2, bin: 'BIN-003', location: 'Central Plaza', priority: 'high', status: 'in-progress', assignedTo: 'Team A', capacity: 85, scheduledTime: '10:00 AM', completedAt: undefined },
-  { id: 3, bin: 'BIN-007', location: 'University Campus', priority: 'high', status: 'pending', assignedTo: null as string | null, capacity: 97, scheduledTime: 'ASAP', completedAt: undefined },
-  { id: 4, bin: 'BIN-005', location: 'Shopping District', priority: 'medium', status: 'pending', assignedTo: null as string | null, capacity: 78, scheduledTime: '2:00 PM', completedAt: undefined },
-  { id: 5, bin: 'BIN-008', location: 'Market Square', priority: 'low', status: 'completed', assignedTo: 'Team B', capacity: 68, scheduledTime: '8:00 AM', completedAt: '8:45 AM' },
-  { id: 6, bin: 'BIN-002', location: 'Park Avenue', priority: 'low', status: 'completed', assignedTo: 'Team A', capacity: 48, scheduledTime: '9:00 AM', completedAt: '9:30 AM' },
-];
-
-const teams = ['Team A', 'Team B', 'Team C'];
+// Sample data removed - connect to your database for live collection data
+const collectionsData: any[] = [];
+const teams: string[] = [];
 
 // ============================================================================
 // MAIN COMPONENT

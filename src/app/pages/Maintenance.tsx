@@ -16,14 +16,8 @@ import { Battery, Wifi, Activity, AlertTriangle, CheckCircle, Wrench, X, Search,
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const initialSystems = [
-  { id: 'BIN-001', location: 'Main Street', sensors: 'online', battery: 85, connectivity: 'excellent', lastMaintenance: '2 days ago', status: 'good', scheduledDate: null as string | null },
-  { id: 'BIN-002', location: 'Park Avenue', sensors: 'online', battery: 92, connectivity: 'excellent', lastMaintenance: '1 day ago', status: 'good', scheduledDate: null },
-  { id: 'BIN-003', location: 'Central Plaza', sensors: 'online', battery: 45, connectivity: 'good', lastMaintenance: '5 days ago', status: 'warning', scheduledDate: null },
-  { id: 'BIN-004', location: 'Beach Road', sensors: 'online', battery: 78, connectivity: 'good', lastMaintenance: '3 days ago', status: 'good', scheduledDate: null },
-  { id: 'BIN-005', location: 'Shopping District', sensors: 'offline', battery: 12, connectivity: 'poor', lastMaintenance: '10 days ago', status: 'critical', scheduledDate: null },
-  { id: 'BIN-006', location: 'City Hall', sensors: 'online', battery: 68, connectivity: 'excellent', lastMaintenance: '4 days ago', status: 'good', scheduledDate: null },
-];
+// Sample data removed - connect to your database for live system status data
+const initialSystems: any[] = [];
 
 // ============================================================================
 // MODAL COMPONENTS

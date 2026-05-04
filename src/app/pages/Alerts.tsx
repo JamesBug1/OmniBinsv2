@@ -15,16 +15,8 @@ import { AlertCircle, Bell, CheckCircle, XCircle, Wind, Weight, X } from 'lucide
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const alerts = [
-  { id: 1, bin: 'BIN-001', type: 'overweight', message: 'Bin capacity at 95% - immediate collection required', time: '2 mins ago', severity: 'critical', read: false },
-  { id: 2, bin: 'BIN-003', type: 'gas', message: 'High ammonia level detected (45 ppm)', time: '15 mins ago', severity: 'warning', read: false },
-  { id: 3, bin: 'BIN-007', type: 'rot', message: 'Rot Index threshold exceeded (8.5)', time: '30 mins ago', severity: 'warning', read: false },
-  { id: 4, bin: 'BIN-005', type: 'neutralization', message: 'Neutralizing mist system activated', time: '1 hour ago', severity: 'info', read: true },
-  { id: 5, bin: 'BIN-012', type: 'sensor', message: 'Weight sensor malfunction detected', time: '2 hours ago', severity: 'error', read: false },
-  { id: 6, bin: 'BIN-008', type: 'collection', message: 'Collection completed successfully', time: '3 hours ago', severity: 'success', read: true },
-  { id: 7, bin: 'BIN-004', type: 'gas', message: 'Methane level increasing (38 ppm)', time: '4 hours ago', severity: 'warning', read: true },
-  { id: 8, bin: 'BIN-015', type: 'overweight', message: 'Bin near full (82%)', time: '5 hours ago', severity: 'warning', read: true },
-];
+// Sample data removed - connect to your database for live alerts
+const alerts: any[] = [];
 
 // ============================================================================
 // MAIN COMPONENT

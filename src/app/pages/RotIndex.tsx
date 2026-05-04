@@ -12,22 +12,9 @@ import { Wind, AlertTriangle } from 'lucide-react';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const historicalData = [
-  { time: '00:00', nh3: 15, ch4: 22, rotIndex: 3.2 },
-  { time: '04:00', nh3: 18, ch4: 25, rotIndex: 3.8 },
-  { time: '08:00', nh3: 25, ch4: 30, rotIndex: 4.9 },
-  { time: '12:00', nh3: 32, ch4: 38, rotIndex: 6.2 },
-  { time: '16:00', nh3: 28, ch4: 35, rotIndex: 5.6 },
-  { time: '20:00', nh3: 20, ch4: 28, rotIndex: 4.2 },
-];
-
-const binRotData = [
-  { bin: 'BIN-001', rotIndex: 7.8, nh3: 38, ch4: 42 },
-  { bin: 'BIN-007', rotIndex: 8.5, nh3: 45, ch4: 48 },
-  { bin: 'BIN-003', rotIndex: 6.9, nh3: 32, ch4: 38 },
-  { bin: 'BIN-005', rotIndex: 5.8, nh3: 28, ch4: 32 },
-  { bin: 'BIN-006', rotIndex: 5.2, nh3: 25, ch4: 28 },
-];
+// Sample data removed - connect to your database for live rot index data
+const historicalData: any[] = [];
+const binRotData: any[] = [];
 
 // ============================================================================
 // MAIN COMPONENT

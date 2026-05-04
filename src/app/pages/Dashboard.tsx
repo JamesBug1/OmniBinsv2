@@ -14,31 +14,10 @@ import { Trash2, AlertCircle, Wind, Droplet } from 'lucide-react';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const recentAlerts = [
-  { id: 1, bin: 'BIN-001', message: 'Bin capacity at 95%', time: '2 mins ago', type: 'urgent' },
-  { id: 2, bin: 'BIN-003', message: 'High ammonia level detected', time: '15 mins ago', type: 'warning' },
-  { id: 3, bin: 'BIN-005', message: 'Collection completed', time: '1 hour ago', type: 'success' },
-  { id: 4, bin: 'BIN-012', message: 'Neutralization activated', time: '2 hours ago', type: 'info' },
-];
-
-const weeklyCollections = [
-  { day: 'Mon', collections: 12 },
-  { day: 'Tue', collections: 15 },
-  { day: 'Wed', collections: 18 },
-  { day: 'Thu', collections: 14 },
-  { day: 'Fri', collections: 20 },
-  { day: 'Sat', collections: 16 },
-  { day: 'Sun', collections: 10 },
-];
-
-const gasLevels = [
-  { time: '00:00', nh3: 15, ch4: 22 },
-  { time: '04:00', nh3: 18, ch4: 25 },
-  { time: '08:00', nh3: 25, ch4: 30 },
-  { time: '12:00', nh3: 32, ch4: 38 },
-  { time: '16:00', nh3: 28, ch4: 35 },
-  { time: '20:00', nh3: 20, ch4: 28 },
-];
+// Sample data removed - connect to your database for live data
+const recentAlerts: any[] = [];
+const weeklyCollections: any[] = [];
+const gasLevels: any[] = [];
 
 // ============================================================================
 // MAIN COMPONENT

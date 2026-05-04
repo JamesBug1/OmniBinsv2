@@ -14,14 +14,8 @@ import { MapPin, Navigation, Clock } from 'lucide-react';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const bins = [
-  { id: 'BIN-001', location: 'Main Street Plaza', lat: 14.5995, lng: 120.9842, status: 'full', capacity: 92, lastCollection: '2 days ago' },
-  { id: 'BIN-002', location: 'Park Avenue', lat: 14.6001, lng: 120.9838, status: 'normal', capacity: 48, lastCollection: '1 day ago' },
-  { id: 'BIN-003', location: 'Central Plaza', lat: 14.5989, lng: 120.9850, status: 'near-full', capacity: 85, lastCollection: '3 days ago' },
-  { id: 'BIN-004', location: 'Beach Road', lat: 14.5982, lng: 120.9845, status: 'normal', capacity: 25, lastCollection: '5 hours ago' },
-  { id: 'BIN-005', location: 'Shopping District', lat: 14.6008, lng: 120.9832, status: 'near-full', capacity: 78, lastCollection: '2 days ago' },
-  { id: 'BIN-006', location: 'City Hall', lat: 14.5978, lng: 120.9855, status: 'normal', capacity: 71, lastCollection: '12 hours ago' },
-];
+// Sample data removed - connect to your database for live bin location data
+const bins: any[] = [];
 
 // ============================================================================
 // MAIN COMPONENT

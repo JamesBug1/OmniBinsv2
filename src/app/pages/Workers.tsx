@@ -7,13 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { User, Phone, Mail, CheckCircle, Clock, Search, X, Users, Plus, Trash2 } from 'lucide-react';
 
-const workersData = [
-  { id: 1, name: 'Juan Dela Cruz', team: 'Team A', phone: '0917-123-4567', email: 'juan@omnibins.com', tasksToday: 5, tasksCompleted: 3, status: 'active' },
-  { id: 2, name: 'Maria Santos', team: 'Team A', phone: '0918-234-5678', email: 'maria@omnibins.com', tasksToday: 4, tasksCompleted: 4, status: 'active' },
-  { id: 3, name: 'Pedro Reyes', team: 'Team B', phone: '0919-345-6789', email: 'pedro@omnibins.com', tasksToday: 6, tasksCompleted: 2, status: 'active' },
-  { id: 4, name: 'Ana Garcia', team: 'Team B', phone: '0920-456-7890', email: 'ana@omnibins.com', tasksToday: 3, tasksCompleted: 1, status: 'active' },
-  { id: 5, name: 'Jose Ramos', team: 'Team C', phone: '0921-567-8901', email: 'jose@omnibins.com', tasksToday: 0, tasksCompleted: 0, status: 'off-duty' },
-];
+const workersData: any[] = [];
 
 interface CreateTeamModalProps {
   isOpen: boolean;

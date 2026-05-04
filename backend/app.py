@@ -103,12 +103,120 @@ def get_user_profile():
     })
 
 @app.route('/users', methods=['POST'])
+@require_auth
 def create_user():
     data = request.json
-    # Placeholder: save to Firebase Realtime Database
-    # new_ref = realtime_db_ref.child('users').push(data)
-    # return jsonify({"message": "User created", "id": new_ref.key, "data": data}), 201
-    return jsonify({"message": "User creation placeholder", "data": data}), 201
+    user = request.user
+
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    required_fields = ['name', 'email', 'team']
+    for field in required_fields:
+        if field not in data:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    try:
+        # Create user data structure
+        user_data = {
+            "name": data['name'],
+            "email": data['email'],
+            "phone": data.get('phone', ''),
+            "team": data['team'],
+            "role": data.get('role', 'staff'),
+            "status": "active",
+            "created_at": {".sv": "timestamp"},
+            "created_by": user.get('uid')
+        }
+
+        # Save to Realtime Database
+        new_ref = realtime_db_ref.child('users').push(user_data)
+        return jsonify({
+            "message": "User created successfully",
+            "id": new_ref.key,
+            "data": user_data
+        }), 201
+    except Exception as e:
+        return jsonify({"error": "Failed to create user", "details": str(e)}), 500
+
+@app.route('/bins', methods=['POST'])
+@require_auth
+def create_bin():
+    data = request.json
+    user = request.user
+
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    required_fields = ['id', 'location', 'capacity']
+    for field in required_fields:
+        if field not in data:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    try:
+        # Create bin data structure
+        bin_data = {
+            "id": data['id'],
+            "location": data['location'],
+            "capacity": data['capacity'],
+            "current_fill": 0,
+            "status": data.get('status', 'empty'),
+            "created_at": {".sv": "timestamp"},
+            "created_by": user.get('uid')
+        }
+
+        # Save to Realtime Database
+        new_ref = realtime_db_ref.child('bins').child(data['id'])
+        new_ref.set(bin_data)
+        return jsonify({
+            "message": "Bin created successfully",
+            "id": data['id'],
+            "data": bin_data
+        }), 201
+    except Exception as e:
+        return jsonify({"error": "Failed to create bin", "details": str(e)}), 500
+
+@app.route('/teams', methods=['POST'])
+@require_auth
+def create_team():
+    data = request.json
+    user = request.user
+
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    required_fields = ['name', 'workerIds']
+    for field in required_fields:
+        if field not in data:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    try:
+        # Create team data structure
+        team_data = {
+            "name": data['name'],
+            "worker_ids": data['workerIds'],
+            "created_at": {".sv": "timestamp"},
+            "created_by": user.get('uid')
+        }
+
+        # Save to Realtime Database
+        new_ref = realtime_db_ref.child('teams').push(team_data)
+        return jsonify({
+            "message": "Team created successfully",
+            "id": new_ref.key,
+            "data": team_data
+        }), 201
+    except Exception as e:
+        return jsonify({"error": "Failed to create team", "details": str(e)}), 500
+
+@app.route('/teams', methods=['GET'])
+@require_auth
+def get_teams():
+    try:
+        teams = realtime_db_ref.child('teams').get() or {}
+        return jsonify(teams)
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch teams", "details": str(e)}), 500
 
 @app.route('/login', methods=['POST'])
 def login():

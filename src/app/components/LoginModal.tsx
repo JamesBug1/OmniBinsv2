@@ -23,7 +23,15 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
     setError('');
     setIsLoading(true);
 
+    const allowedEmail = 'jamesbryledelossantos23@gmail.com';
+
     try {
+      if (email !== allowedEmail) {
+        setError('Only jamesbryledelossantos23@gmail.com is authorized to log in.');
+        setIsLoading(false);
+        return;
+      }
+
       await signInWithEmail(email, password);
       const token = await getIdToken();
       onLoginSuccess?.(token ?? undefined);
@@ -40,8 +48,18 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
     setError('');
     setIsLoading(true);
 
+    const allowedEmail = 'jamesbryledelossantos23@gmail.com';
+
     try {
-      await signInWithGoogle();
+      const userCredential = await signInWithGoogle();
+      const userEmail = userCredential.user.email;
+
+      if (userEmail !== allowedEmail) {
+        setError('Only admin is allowed.');
+        setIsLoading(false);
+        return;
+      }
+
       const token = await getIdToken();
       onLoginSuccess?.(token ?? undefined);
       onClose();

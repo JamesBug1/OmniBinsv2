@@ -12,19 +12,12 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Shield, User, Users, Settings, X, Search, Edit2, Save, Mail, Phone, Calendar, Trash2, Upload, Clock } from 'lucide-react';
-
+import { Shield, User, Users, Settings, X, Search, Edit2, Save, Mail, Phone, Calendar, Trash2, Upload, Clock } from 'lucide-react';import { addUser, getUsers } from '../../firebase';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-const users: UserData[] = [
-  { id: 1, name: 'Admin User', email: 'admin@omnibins.com', role: 'admin', status: 'active', lastLogin: '2 hours ago', phone: '+1 (555) 123-4567', department: 'Administration', joinedDate: 'January 2024', avatar: undefined },
-  { id: 2, name: 'LGU Staff 1', email: 'staff1@omnibins.com', role: 'staff', status: 'active', lastLogin: '5 hours ago', phone: '+1 (555) 234-5678', department: 'Operations', joinedDate: 'February 2024', avatar: undefined },
-  { id: 3, name: 'LGU Staff 2', email: 'staff2@omnibins.com', role: 'staff', status: 'active', lastLogin: '1 day ago', phone: '+1 (555) 345-6789', department: 'Operations', joinedDate: 'March 2024', avatar: undefined },
-  { id: 4, name: 'Worker Manager', email: 'manager@omnibins.com', role: 'manager', status: 'active', lastLogin: '3 hours ago', phone: '+1 (555) 456-7890', department: 'Management', joinedDate: 'January 2024', avatar: undefined },
-  { id: 5, name: 'Analyst', email: 'analyst@omnibins.com', role: 'analyst', status: 'active', lastLogin: '6 hours ago', phone: '+1 (555) 567-8901', department: 'Analytics', joinedDate: 'April 2024', avatar: undefined },
-  { id: 6, name: 'Inactive User', email: 'inactive@omnibins.com', role: 'staff', status: 'inactive', lastLogin: '30 days ago', phone: '+1 (555) 678-9012', department: 'Operations', joinedDate: 'May 2024', avatar: undefined },
-];
+// Sample data removed - connect to your database for live user data
+const users: UserData[] = [];
 
 // ============================================================================
 // MODAL COMPONENTS
@@ -41,7 +34,7 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
       alert('Full Name is required');
@@ -55,10 +48,27 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
       alert('Role is required when team is N/A');
       return;
     }
-    alert(`Person Added:\nName: ${formData.name}\nEmail: ${formData.email || 'N/A'}\nPhone: ${formData.phone || 'N/A'}\nTeam: ${formData.team}${formData.role ? `\nRole: ${formData.role}` : ''}`);
-    setFormData({ name: '', email: '', phone: '', team: '', role: '' });
-    setShowRoleDropdown(false);
-    onClose();
+
+    try {
+      const userData = {
+        name: formData.name,
+        email: formData.email || '',
+        phone: formData.phone || '',
+        team: formData.team,
+        role: formData.role || 'staff'
+      };
+
+      await addUser(userData);
+      alert('User added successfully!');
+      setFormData({ name: '', email: '', phone: '', team: '', role: '' });
+      setShowRoleDropdown(false);
+      onClose();
+      // Refresh users list
+      loadUsers();
+    } catch (error) {
+      console.error('Failed to add user:', error);
+      alert('Failed to add user. Please try again.');
+    }
   };
 
   return (
