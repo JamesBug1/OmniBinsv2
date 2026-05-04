@@ -16,11 +16,12 @@ import {
   Gauge, Bell, BarChart3, MapPin, Smartphone, 
   Radio, Cloud, TrendingUp, DollarSign, Leaf, 
   Clock, Users, Shield, Zap, Phone, AlertCircle, 
-  CheckCircle
+  CheckCircle, Google
 } from 'lucide-react';
+import { signInWithEmail, signInWithGoogle, getIdToken } from '../../firebase';
 
 interface LandingPageProps {
-  onLoginSuccess?: () => void;
+  onLoginSuccess?: (token?: string) => void;
 }
 
 // ============================================================================
@@ -36,11 +37,42 @@ interface LoginModalProps {
 function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Login attempt:', { email, password });
-    onLoginSuccess?.();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await signInWithEmail(email, password);
+      const token = await getIdToken();
+      onLoginSuccess?.(token ?? undefined);
+      onClose();
+    } catch (err) {
+      console.error('Login failed:', err);
+      setError('Login failed. Please check your credentials and try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await signInWithGoogle();
+      const token = await getIdToken();
+      onLoginSuccess?.(token ?? undefined);
+      onClose();
+    } catch (err) {
+      console.error('Google sign-in failed:', err);
+      setError('Google sign-in failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -79,7 +111,19 @@ function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
                   </label>
                   <a href="#" className="text-green-600 hover:text-green-700 font-medium cursor-pointer">Forgot password?</a>
                 </div>
-                <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white cursor-pointer">Sign In</Button>
+
+                {error && <p className="text-sm text-red-600">{error}</p>}
+
+                <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white cursor-pointer" disabled={isLoading}>
+                  {isLoading ? 'Signing in...' : 'Sign In'}
+                </Button>
+
+                <div className="grid gap-3 pt-2">
+                  <Button type="button" className="w-full border border-gray-300 bg-white text-gray-900 hover:bg-gray-50" onClick={handleGoogleSignIn} disabled={isLoading}>
+                    <Google className="mr-2 inline-block h-4 w-4" />
+                    Continue with Google
+                  </Button>
+                </div>
               </form>
             </motion.div>
           </div>

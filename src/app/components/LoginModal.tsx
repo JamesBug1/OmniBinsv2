@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Mail, Lock } from 'lucide-react';
+import { X, Mail, Lock, Google } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { signInWithEmail, signInWithGoogle, getIdToken } from '../../firebase';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -13,13 +14,42 @@ interface LoginModalProps {
 export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle login logic here
-    console.log('Login attempt:', { email, password });
-    // Call the success callback
-    onLoginSuccess?.();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await signInWithEmail(email, password);
+      const token = await getIdToken();
+      onLoginSuccess?.(token ?? undefined);
+      onClose();
+    } catch (err) {
+      console.error('Login failed:', err);
+      setError('Login failed. Please check your email and password.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await signInWithGoogle();
+      const token = await getIdToken();
+      onLoginSuccess?.(token ?? undefined);
+      onClose();
+    } catch (err) {
+      console.error('Google sign-in failed:', err);
+      setError('Google sign-in failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -110,12 +140,27 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
                   </a>
                 </div>
 
+                {error && <p className="text-sm text-red-600">{error}</p>}
+
                 <Button
                   type="submit"
                   className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  disabled={isLoading}
                 >
-                  Sign In
+                  {isLoading ? 'Signing in...' : 'Sign In'}
                 </Button>
+
+                <div className="grid gap-3 pt-2">
+                  <Button
+                    type="button"
+                    className="w-full border border-gray-300 bg-white text-gray-900 hover:bg-gray-50"
+                    onClick={handleGoogleSignIn}
+                    disabled={isLoading}
+                  >
+                    <Google className="mr-2 inline-block h-4 w-4" />
+                    Continue with Google
+                  </Button>
+                </div>
               </form>
             </motion.div>
           </div>

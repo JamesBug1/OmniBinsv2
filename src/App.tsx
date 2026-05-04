@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useState, useMemo, lazy, Suspense } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { RouterProvider } from 'react-router';
 
 import { createAppRouter } from './app/routes'; 
@@ -13,11 +13,22 @@ const LoadingFallback = () => (
 );
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => Boolean(localStorage.getItem('omniToken')));
 
   const router = useMemo(() => createAppRouter(() => setIsLoggedIn(false)), []);
 
-  const handleLoginSuccess = () => setIsLoggedIn(true);
+  const handleLoginSuccess = (token?: string) => {
+    if (token) {
+      localStorage.setItem('omniToken', token);
+    }
+    setIsLoggedIn(true);
+  };
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      localStorage.removeItem('omniToken');
+    }
+  }, [isLoggedIn]);
 
   // If logged in, show the dashboard application
   if (isLoggedIn) {
