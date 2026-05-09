@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -6,21 +6,33 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { User, Phone, Mail, CheckCircle, Clock, Search, X, Users, Plus, Trash2 } from 'lucide-react';
+import { getUsers, createTeam, getTeams } from '../../firebase';
 
-const workersData: any[] = [];
+interface WorkerData {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  team?: string;
+  status?: string;
+  tasksCompleted?: number;
+  tasksToday?: number;
+}
+
+const workersData: WorkerData[] = [];
 
 interface CreateTeamModalProps {
   isOpen: boolean;
   onClose: () => void;
-  workers: typeof workersData;
-  onCreateTeam: (teamName: string, selectedWorkerIds: number[]) => void;
+  workers: WorkerData[];
+  onCreateTeam: (teamName: string, selectedWorkerIds: string[]) => void;
 }
 
 function CreateTeamModal({ isOpen, onClose, workers, onCreateTeam }: CreateTeamModalProps) {
   const [teamName, setTeamName] = useState('');
-  const [selectedWorkers, setSelectedWorkers] = useState<number[]>([]);
+  const [selectedWorkers, setSelectedWorkers] = useState<string[]>([]);
 
-  const toggleWorker = (workerId: number) => {
+  const toggleWorker = (workerId: string) => {
     setSelectedWorkers(prev =>
       prev.includes(workerId)
         ? prev.filter(id => id !== workerId)
@@ -161,26 +173,71 @@ function CreateTeamModal({ isOpen, onClose, workers, onCreateTeam }: CreateTeamM
 }
 
 export function Workers() {
-  const [workerList, setWorkerList] = useState(workersData);
+  const [workerList, setWorkerList] = useState<WorkerData[]>(workersData);
+  const [teamList, setTeamList] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateTeamModalOpen, setIsCreateTeamModalOpen] = useState(false);
 
   const filteredWorkers = workerList.filter(worker =>
     worker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    worker.team.toLowerCase().includes(searchQuery.toLowerCase())
+    (worker.team ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const activeWorkers = workerList.filter(w => w.status === 'active').length;
   const totalTasks = workerList.reduce((sum, w) => sum + w.tasksCompleted, 0);
 
-  const handleCreateTeam = (teamName: string, selectedWorkerIds: number[]) => {
-    setWorkerList(workerList.map(worker =>
-      selectedWorkerIds.includes(worker.id)
-        ? { ...worker, team: teamName }
-        : worker
-    ));
-    alert(`Team "${teamName}" created successfully with ${selectedWorkerIds.length} worker(s)!`);
+  const loadWorkers = async () => {
+    try {
+      const users = await getUsers();
+      const normalized = Array.isArray(users)
+        ? users.map((user: any) => ({
+            id: String(user.id),
+            name: String(user.name || user.fullName || 'Unnamed User'),
+            email: String(user.email || ''),
+            phone: String(user.phone || ''),
+            team: String(user.team || user.department || ''),
+            status: String(user.status || 'active'),
+            tasksCompleted: Number(user.tasksCompleted ?? 0),
+            tasksToday: Number(user.tasksToday ?? 0),
+          }))
+        : [];
+      setWorkerList(normalized);
+    } catch (error) {
+      console.error('Failed to load workers:', error);
+      setWorkerList([]);
+    }
   };
+
+  const loadTeams = async () => {
+    try {
+      const teams = await getTeams();
+      setTeamList(Array.isArray(teams) ? teams : []);
+    } catch (error) {
+      console.error('Failed to load teams:', error);
+      setTeamList([]);
+    }
+  };
+
+  const handleCreateTeam = async (teamName: string, selectedWorkerIds: string[]) => {
+    try {
+      await createTeam({ name: teamName, workerIds: selectedWorkerIds });
+      setWorkerList(workerList.map(worker =>
+        selectedWorkerIds.includes(worker.id)
+          ? { ...worker, team: teamName }
+          : worker
+      ));
+      await loadTeams();
+      alert(`Team "${teamName}" created successfully with ${selectedWorkerIds.length} worker(s)!`);
+    } catch (error) {
+      console.error('Failed to create team:', error);
+      alert('Failed to create team. Please try again.');
+    }
+  };
+
+  useEffect(() => {
+    loadWorkers();
+    loadTeams();
+  }, []);
 
   return (
 
@@ -295,6 +352,34 @@ export function Workers() {
         workers={workerList}
         onCreateTeam={handleCreateTeam}
       />
+      {teamList.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-lg font-bold text-gray-900">Saved Teams</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {teamList.map((team) => (
+              <Card key={team.id}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="font-bold text-gray-900">{team.name}</p>
+                      <p className="text-sm text-gray-500">{team.workerIds?.length ?? 0} member(s)</p>
+                    </div>
+                    <Badge className="bg-blue-500 text-white">Team</Badge>
+                  </div>
+                  <div className="text-sm text-gray-600 space-y-1">
+                    {(team.workerIds ?? []).map((id: string) => {
+                      const worker = workerList.find(w => w.id === id);
+                      return (
+                        <p key={id}>{worker ? worker.name : `Worker ID: ${id}`}</p>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,21 +5,62 @@
 // ============================================================================
 // IMPORTS
 // ============================================================================
+import { useState, useEffect } from 'react';
+import { ref, onValue } from 'firebase/database';
+import { db } from '../../firebase';
+import { normalizeSensorRecord } from '../../lib/gasConversion';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Wind, AlertTriangle } from 'lucide-react';
 
 // ============================================================================
-// DATA & CONSTANTS
-// ============================================================================
-// Sample data removed - connect to your database for live rot index data
-const historicalData: any[] = [];
-const binRotData: any[] = [];
-
-// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 export function RotIndex() {
+  const [avgNh3, setAvgNh3] = useState(0);
+  const [avgCh4, setAvgCh4] = useState(0);
+  const [highRotBins, setHighRotBins] = useState(0);
+  const [historicalData, setHistoricalData] = useState<any[]>([]);
+  const [binRotData, setBinRotData] = useState<any[]>([]);
+
+  useEffect(() => {
+    const sensorDataRef = ref(db, 'sensor_data');
+    const unsubscribe = onValue(sensorDataRef, (snapshot) => {
+      const data = snapshot.val();
+      const records = data
+        ? Object.entries(data)
+            .map(([key, value]) => normalizeSensorRecord(key, value))
+            .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+        : [];
+
+      const avgNh3Value = records.length ? records.reduce((sum, rec) => sum + rec.nh3, 0) / records.length : 0;
+      const avgCh4Value = records.length ? records.reduce((sum, rec) => sum + rec.ch4, 0) / records.length : 0;
+      const highRotBinCount = records.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
+
+      const history = records.slice(-24).map((rec) => ({
+        time: rec.timestamp
+          ? new Date(rec.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          : rec.id,
+        nh3: rec.nh3,
+        ch4: rec.ch4,
+        rotIndex: (rec.nh3 + rec.ch4) / 2,
+      }));
+
+      const topRot = [...records]
+        .map((rec) => ({ bin: rec.location, rotIndex: (rec.nh3 + rec.ch4) / 2 }))
+        .sort((a, b) => b.rotIndex - a.rotIndex)
+        .slice(0, 6);
+
+      setAvgNh3(avgNh3Value);
+      setAvgCh4(avgCh4Value);
+      setHighRotBins(highRotBinCount);
+      setHistoricalData(history);
+      setBinRotData(topRot);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   return (
     <div className="space-y-6">
       <div>
@@ -33,7 +74,7 @@ export function RotIndex() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Average NH₃ (Ammonia)</p>
-                <p className="text-2xl font-bold">24.7 ppm</p>
+                <p className="text-2xl font-bold">{avgNh3.toFixed(1)} ppm</p>
               </div>
               <Wind className="h-8 w-8 text-orange-600" />
             </div>
@@ -44,7 +85,7 @@ export function RotIndex() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-900 font-semibold">Average CH₄ (Methane)</p>
-                <p className="text-2xl font-bold text-gray-900">29.8 ppm</p>
+                <p className="text-2xl font-bold text-gray-900">{avgCh4.toFixed(1)} ppm</p>
               </div>
               <Wind className="h-8 w-8 text-blue-500" />
             </div>
@@ -55,7 +96,7 @@ export function RotIndex() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-900 font-semibold">High Rot Index Bins</p>
-                <p className="text-2xl font-bold text-gray-900">8</p>
+                <p className="text-2xl font-bold text-gray-900">{highRotBins}</p>
               </div>
               <AlertTriangle className="h-8 w-8 text-red-500" />
             </div>

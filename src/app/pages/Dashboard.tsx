@@ -7,6 +7,9 @@
 // ============================================================================
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
+import { ref, onValue } from 'firebase/database';
+import { db, subscribeBins } from '../../firebase';
+import { normalizeSensorRecord } from '../../lib/gasConversion';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Trash2, AlertCircle, Wind, Droplet } from 'lucide-react';
@@ -14,32 +17,63 @@ import { Trash2, AlertCircle, Wind, Droplet } from 'lucide-react';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-// Sample data removed - connect to your database for live data
 const recentAlerts: any[] = [];
 const weeklyCollections: any[] = [];
-const gasLevels: any[] = [];
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 export function Dashboard() {
   const [stats, setStats] = useState({
-    totalBins: 124,
+    totalBins: 0,
     fullBins: 12,
     highRotIndex: 8,
     activeNeutralization: 3,
   });
+  const [gasLevels, setGasLevels] = useState<any[]>([]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setStats(prev => ({
-        ...prev,
-        fullBins: Math.max(8, Math.min(15, prev.fullBins + Math.floor(Math.random() * 3) - 1)),
-        activeNeutralization: Math.max(0, Math.min(6, prev.activeNeutralization + Math.floor(Math.random() * 3) - 1)),
-      }));
-    }, 5000);
+    const unsubscribeBins = subscribeBins((bins) => {
+      setStats((prev) => ({ ...prev, totalBins: bins.length }));
+    });
 
-    return () => clearInterval(interval);
+    return () => unsubscribeBins();
+  }, []);
+
+  useEffect(() => {
+    const sensorDataRef = ref(db, 'sensor_data');
+    const unsubscribe = onValue(sensorDataRef, (snapshot) => {
+      const data = snapshot.val();
+      const records = data
+        ? Object.entries(data)
+            .map(([key, value]) => normalizeSensorRecord(key, value))
+            .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+        : [];
+
+      const binIds = new Set(records.map((rec) => rec.id));
+      const fullBins = records.filter((rec) => rec.weight >= 80).length;
+      const highRotIndex = records.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
+      const activeNeutralization = records.filter((rec) => rec.nh3 > 35 || rec.ch4 > 70).length;
+
+      const points = records.slice(-24).map((rec) => ({
+        time: rec.timestamp
+          ? new Date(rec.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          : rec.id,
+        nh3: rec.nh3,
+        ch4: rec.ch4,
+      }));
+
+      setStats((prev) => ({
+        ...prev,
+        totalBins: binIds.size || prev.totalBins,
+        fullBins,
+        highRotIndex,
+        activeNeutralization,
+      }));
+      setGasLevels(points);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const getAlertColor = (type: string) => {
@@ -54,7 +88,7 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Stats Overview */}
-       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
           <p className="text-gray-900 font-semibold">Live monitoring of bin status, gas levels & collection tracking</p>

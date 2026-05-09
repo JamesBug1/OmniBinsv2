@@ -5,14 +5,15 @@
 // ============================================================================
 // IMPORTS
 // ============================================================================
-import { useState } from 'react';
+import { useState, useEffect, type FormEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Shield, User, Users, Settings, X, Search, Edit2, Save, Mail, Phone, Calendar, Trash2, Upload, Clock } from 'lucide-react';import { addUser, getUsers } from '../../firebase';
+import { Shield, User, Users, Settings, X, Search, Edit2, Save, Mail, Phone, Calendar, Trash2, Upload, Clock } from 'lucide-react';
+import { addUser, getUsers } from '../../firebase';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
@@ -22,7 +23,7 @@ const users: UserData[] = [];
 // ============================================================================
 // MODAL COMPONENTS
 // ============================================================================
-function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClose: () => void; onUserAdded: () => void }) {
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', team: '', role: '' });
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
 
@@ -34,7 +35,7 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!formData.name.trim()) {
       alert('Full Name is required');
@@ -63,8 +64,7 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
       setFormData({ name: '', email: '', phone: '', team: '', role: '' });
       setShowRoleDropdown(false);
       onClose();
-      // Refresh users list
-      loadUsers();
+      onUserAdded();
     } catch (error) {
       console.error('Failed to add user:', error);
       alert('Failed to add user. Please try again.');
@@ -129,7 +129,7 @@ function AddUserModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 }
 
 interface UserData {
-  id: number;
+  id: string;
   name: string;
   email: string;
   phone: string;
@@ -170,7 +170,7 @@ function ProfileModal({ isOpen, onClose, userData, onUpdateUserData, onRemoveUse
     }
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -407,11 +407,36 @@ function ProfileModal({ isOpen, onClose, userData, onUpdateUserData, onRemoveUse
 // MAIN COMPONENT
 // ============================================================================
 export function UserManagement() {
-  const [userList, setUserList] = useState(users);
+  const [userList, setUserList] = useState<UserData[]>(users);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  const loadUsers = async () => {
+    try {
+      const users = await getUsers();
+      if (Array.isArray(users)) {
+        setUserList(users as UserData[]);
+      } else if (users && typeof users === 'object') {
+        setUserList(
+          Object.entries(users).map(([id, item]) => ({
+            id,
+            ...(typeof item === 'object' && item !== null ? item : {}),
+          })) as UserData[]
+        );
+      } else {
+        setUserList([]);
+      }
+    } catch (error) {
+      console.error('Failed to load users:', error);
+      setUserList([]);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
 
   const filteredUsers = userList.filter(user =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -583,7 +608,7 @@ export function UserManagement() {
         ))}
       </div>
 
-      <AddUserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <AddUserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onUserAdded={loadUsers} />
       {selectedUser && (
         <ProfileModal
           isOpen={isProfileModalOpen}

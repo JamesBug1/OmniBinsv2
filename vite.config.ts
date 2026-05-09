@@ -3,11 +3,6 @@ import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
-import { defineConfig } from 'vite'
-import path from 'path'
-import tailwindcss from '@tailwindcss/vite'
-import react from '@vitejs/plugin-react'
-
 export default defineConfig({
   base: '/',
   plugins: [
@@ -18,6 +13,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    dedupe: ['react', 'react-dom'], // prevents duplicate React instances
   },
   assetsInclude: ['**/*.svg', '**/*.csv'],
   build: {
@@ -58,6 +54,13 @@ export default defineConfig({
     reportCompressedSize: false,
   },
   server: {
+    host: '0.0.0.0',
+    port: 5173,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: 5173,        // ✅ was clientPort: 5174 (wrong)
+    },
     headers: {
       'Cache-Control': 'public, max-age=3600',
     },

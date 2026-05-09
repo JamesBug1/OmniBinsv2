@@ -7,7 +7,7 @@ import {
   signOut,
   type UserCredential,
 } from "firebase/auth";
-import { getDatabase } from "firebase/database";
+import { getDatabase, ref, onValue, get, push, set, update } from "firebase/database";
 
 interface FirebaseEnv {
   VITE_FIREBASE_API_KEY?: string;
@@ -49,6 +49,34 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getDatabase(app);
 export const googleProvider = new GoogleAuthProvider();
+
+export function subscribeBins(callback: (bins: any[]) => void) {
+  const binsRef = ref(db, 'bins');
+  return onValue(binsRef, (snapshot) => {
+    const data = snapshot.val();
+    const bins = data
+      ? Object.entries(data).map(([key, value]) => ({
+          id: key,
+          ...(typeof value === 'object' && value !== null ? value : {}),
+        }))
+      : [];
+    callback(bins);
+  });
+}
+
+export function subscribeCollections(callback: (collections: any[]) => void) {
+  const collectionsRef = ref(db, 'collections');
+  return onValue(collectionsRef, (snapshot) => {
+    const data = snapshot.val();
+    const collections = data
+      ? Object.entries(data).map(([key, value]) => ({
+          id: key,
+          ...(typeof value === 'object' && value !== null ? value : {}),
+        }))
+      : [];
+    callback(collections);
+  });
+}
 
 export async function signInWithEmail(
   email: string,
@@ -113,14 +141,39 @@ export async function addUser(userData: {
   team: string;
   role?: string;
 }): Promise<any> {
-  return apiRequest('/users', {
-    method: 'POST',
-    body: JSON.stringify(userData),
+  const usersRef = ref(db, 'users');
+  const newUserRef = push(usersRef);
+  const timestamp = new Date().toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
   });
+  const userRecord = {
+    name: userData.name,
+    email: userData.email || '',
+    phone: userData.phone || '',
+    team: userData.team,
+    role: userData.role || 'staff',
+    department: userData.team || 'Operations',
+    status: 'active',
+    joinedDate: timestamp,
+    lastLogin: timestamp,
+  };
+  await set(newUserRef, userRecord);
+  return { id: newUserRef.key, ...userRecord };
 }
 
 export async function getUsers(): Promise<any> {
-  return apiRequest('/users');
+  const usersRef = ref(db, 'users');
+  const snapshot = await get(usersRef);
+  const data = snapshot.val();
+  if (!data) {
+    return [];
+  }
+  return Object.entries(data).map(([key, value]) => ({
+    id: key,
+    ...(typeof value === 'object' && value !== null ? value : {}),
+  }));
 }
 
 // ============================================================================
@@ -149,14 +202,36 @@ export async function getBins(): Promise<any> {
 
 export async function createTeam(teamData: {
   name: string;
-  workerIds: number[];
+  workerIds: string[];
 }): Promise<any> {
-  return apiRequest('/teams', {
-    method: 'POST',
-    body: JSON.stringify(teamData),
+  const teamsRef = ref(db, 'teams');
+  const newTeamRef = push(teamsRef);
+  const createdAt = new Date().toISOString();
+  const teamRecord = {
+    name: teamData.name,
+    workerIds: teamData.workerIds,
+    createdAt,
+  };
+  await set(newTeamRef, teamRecord);
+
+  const updates: Record<string, any> = {};
+  teamData.workerIds.forEach((workerId) => {
+    updates[`users/${workerId}/team`] = teamData.name;
   });
+  await update(ref(db), updates);
+
+  return { id: newTeamRef.key, ...teamRecord };
 }
 
 export async function getTeams(): Promise<any> {
-  return apiRequest('/teams');
+  const teamsRef = ref(db, 'teams');
+  const snapshot = await get(teamsRef);
+  const data = snapshot.val();
+  if (!data) {
+    return [];
+  }
+  return Object.entries(data).map(([key, value]) => ({
+    id: key,
+    ...(typeof value === 'object' && value !== null ? value : {}),
+  }));
 }

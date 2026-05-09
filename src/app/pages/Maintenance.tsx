@@ -5,8 +5,10 @@
 // ============================================================================
 // IMPORTS
 // ============================================================================
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ref, set, onValue, remove } from 'firebase/database';
+import { db } from '../../firebase';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -14,15 +16,19 @@ import { Input } from '../components/ui/input';
 import { Battery, Wifi, Activity, AlertTriangle, CheckCircle, Wrench, X, Search, Edit, Trash2 } from 'lucide-react';
 
 // ============================================================================
-// DATA & CONSTANTS
-// ============================================================================
-// Sample data removed - connect to your database for live system status data
-const initialSystems: any[] = [];
-
-// ============================================================================
 // MODAL COMPONENTS
 // ============================================================================
-const ScheduleMaintenanceModal = ({ isOpen, onClose, systemId, onSchedule }: { isOpen: boolean; onClose: () => void; systemId: string; onSchedule: (date: string) => void }) => {
+const ScheduleMaintenanceModal = ({
+  isOpen,
+  onClose,
+  systemId,
+  onSchedule,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  systemId: string;
+  onSchedule: (date: string) => void;
+}) => {
   const [maintenanceDate, setMaintenanceDate] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -59,7 +65,9 @@ const ScheduleMaintenanceModal = ({ isOpen, onClose, systemId, onSchedule }: { i
               </button>
             </div>
 
-            <p className="text-sm text-gray-600 mb-4">System: <span className="font-semibold">{systemId}</span></p>
+            <p className="text-sm text-gray-600 mb-4">
+              System: <span className="font-semibold">{systemId}</span>
+            </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -98,7 +106,19 @@ const ScheduleMaintenanceModal = ({ isOpen, onClose, systemId, onSchedule }: { i
   );
 };
 
-function ConfirmationModal({ isOpen, onClose, onConfirm, title, message }: { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string }) {
+function ConfirmationModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+}) {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -122,7 +142,11 @@ function ConfirmationModal({ isOpen, onClose, onConfirm, title, message }: { isO
               <Button type="button" variant="outline" onClick={onClose} className="flex-1 text-sm">
                 Cancel
               </Button>
-              <Button type="button" onClick={onConfirm} className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm">
+              <Button
+                type="button"
+                onClick={onConfirm}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm"
+              >
                 Confirm
               </Button>
             </div>
@@ -133,7 +157,15 @@ function ConfirmationModal({ isOpen, onClose, onConfirm, title, message }: { isO
   );
 }
 
-const AddBinModal = ({ isOpen, onClose, onAddBin }: { isOpen: boolean; onClose: () => void; onAddBin: (bin: any) => void }) => {
+const AddBinModal = ({
+  isOpen,
+  onClose,
+  onAddBin,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onAddBin: (bin: any) => void;
+}) => {
   const [binId, setBinId] = useState('');
   const [location, setLocation] = useState('');
 
@@ -143,20 +175,19 @@ const AddBinModal = ({ isOpen, onClose, onAddBin }: { isOpen: boolean; onClose: 
       alert('Please fill in all required fields');
       return;
     }
-    
+
     const newSystem = {
       id: binId,
       location,
       sensors: 'online',
-      battery: 50,
-      connectivity: 'good',
+      battery: 100,
+      connectivity: 'excellent',
       lastMaintenance: 'Just added',
       status: 'good',
       scheduledDate: null,
     };
-    
+
     onAddBin(newSystem);
-    alert(`System ${binId} added successfully`);
     setBinId('');
     setLocation('');
     onClose();
@@ -191,9 +222,7 @@ const AddBinModal = ({ isOpen, onClose, onAddBin }: { isOpen: boolean; onClose: 
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1">
-                  System ID
-                </label>
+                <label className="block text-sm font-medium text-gray-900 mb-1">System ID</label>
                 <Input
                   placeholder="e.g., BIN-010"
                   value={binId}
@@ -204,9 +233,7 @@ const AddBinModal = ({ isOpen, onClose, onAddBin }: { isOpen: boolean; onClose: 
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-1">
-                  Location
-                </label>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Location</label>
                 <Input
                   placeholder="e.g., Main Street Plaza"
                   value={location}
@@ -243,49 +270,98 @@ const AddBinModal = ({ isOpen, onClose, onAddBin }: { isOpen: boolean; onClose: 
 // MAIN COMPONENT
 // ============================================================================
 export function Maintenance() {
-  const [systems, setSystems] = useState(initialSystems);
+  const [systems, setSystems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSystem, setSelectedSystem] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddBinModalOpen, setIsAddBinModalOpen] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  // ✅ Load bins from Firebase in real-time
+  useEffect(() => {
+    const binsRef = ref(db, 'bins');
+    const unsubscribe = onValue(binsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const loaded = Object.entries(data).map(([key, value]: [string, any]) => ({
+          id: key,
+          location: value.location ?? '',
+          sensors: value.sensors ?? 'online',
+          battery: value.battery ?? 100,
+          connectivity: value.connectivity ?? 'excellent',
+          lastMaintenance: value.lastMaintenance ?? 'Unknown',
+          status: value.status ?? 'good',
+          scheduledDate: value.scheduledDate ?? null,
+        }));
+        setSystems(loaded);
+      } else {
+        setSystems([]);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const openMaintenanceModal = (systemId: string) => {
     setSelectedSystem(systemId);
     setIsModalOpen(true);
   };
 
-  const handleScheduleMaintenance = (date: string) => {
-    setSystems(systems.map(sys => 
-      sys.id === selectedSystem ? { ...sys, scheduledDate: date } : sys
-    ));
-  };
-
-  const handleAddBin = (newSystem: any) => {
-    setSystems([...systems, newSystem]);
-  };
-
-  const handleRemoveSystem = (systemId: string) => {
-    setConfirmAction({
-      title: 'Remove System',
-      message: `Are you sure you want to remove system ${systemId}? This action cannot be undone.`,
-      onConfirm: () => {
-        setSystems(systems.filter(s => s.id !== systemId));
-        setIsConfirmOpen(false);
-        alert(`System ${systemId} has been removed`);
-      }
-    });
-    setIsConfirmOpen(true);
-  };
-
   const closeMaintenanceModal = () => {
     setIsModalOpen(false);
   };
 
-  const filteredSystems = systems.filter(system =>
-    system.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    system.location.toLowerCase().includes(searchQuery.toLowerCase())
+  // ✅ Save scheduled date to Firebase
+  const handleScheduleMaintenance = async (date: string) => {
+    try {
+      await set(ref(db, `bins/${selectedSystem}/scheduledDate`), date);
+    } catch (error) {
+      console.error('Failed to save scheduled date:', error);
+      alert('Unable to save maintenance date. Check your database connection.');
+    }
+  };
+
+  // ✅ Save new bin to Firebase (onValue listener will auto-update the list)
+  const handleAddBin = async (newSystem: any) => {
+    try {
+      await set(ref(db, `bins/${newSystem.id}`), newSystem);
+      alert(`System ${newSystem.id} added successfully`);
+    } catch (error) {
+      console.error('Failed to save new bin:', error);
+      alert('Unable to save new bin. Check your database connection.');
+    }
+  };
+
+  // ✅ Remove bin from Firebase (onValue listener will auto-update the list)
+  const handleRemoveSystem = (systemId: string) => {
+    setConfirmAction({
+      title: 'Remove System',
+      message: `Are you sure you want to remove system ${systemId}? This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          await remove(ref(db, `bins/${systemId}`));
+          alert(`System ${systemId} has been removed`);
+        } catch (error) {
+          console.error('Failed to remove bin:', error);
+          alert('Unable to remove bin from database.');
+        }
+        setIsConfirmOpen(false);
+      },
+    });
+    setIsConfirmOpen(true);
+  };
+
+  const filteredSystems = systems.filter(
+    (system) =>
+      system.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      system.location.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getStatusBadge = (status: string) => {
@@ -311,12 +387,12 @@ export function Maintenance() {
     return 'text-green-600';
   };
 
-  const criticalCount = systems.filter(s => s.status === 'critical').length;
-  const warningCount = systems.filter(s => s.status === 'warning').length;
-  const goodCount = systems.filter(s => s.status === 'good').length;
+  const criticalCount = systems.filter((s) => s.status === 'critical').length;
+  const warningCount = systems.filter((s) => s.status === 'warning').length;
+  const goodCount = systems.filter((s) => s.status === 'good').length;
 
   return (
-    <div className="space-y-6 ">
+    <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Maintenance & System Health</h2>
@@ -341,6 +417,7 @@ export function Maintenance() {
         </div>
       </div>
 
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         <Card>
           <CardContent className="pt-6">
@@ -377,112 +454,126 @@ export function Maintenance() {
         </Card>
       </div>
 
+      {/* Bin List */}
       <div className="space-y-4">
-        {filteredSystems.map((system) => (
-          <Card key={system.id}>
-            <CardContent className="p-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-3">
-                    <p className="font-bold text-lg text-gray-900">{system.id}</p>
-                    {getStatusBadge(system.status)}
-                  </div>
-                  <p className="text-sm text-gray-900 font-medium mb-4">{system.location}</p>
-                  
-                  <div className="flex gap-6 overflow-x-auto pb-2">
-                    <div className="min-w-max">
-                      <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                        <Activity className="h-4 w-4" />
-                        <span>Sensors</span>
-                      </div>
-                      <p className={`font-bold ${system.sensors === 'online' ? 'text-green-600' : 'text-red-600'}`}>
-                        {system.sensors === 'online' ? 'Online' : 'Offline'}
-                      </p>
-                    </div>
-                    
-                    <div className="min-w-max">
-                      <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                        <Battery className="h-4 w-4" />
-                        <span>Battery</span>
-                      </div>
-                      <p className={`font-bold ${getBatteryColor(system.battery)}`}>
-                        {system.battery}%
-                      </p>
-                    </div>
-                    
-                    <div className="min-w-max">
-                      <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                        <Wifi className="h-4 w-4" />
-                        <span>Connectivity</span>
-                      </div>
-                      <p className={`font-bold capitalize ${getConnectivityColor(system.connectivity)}`}>
-                        {system.connectivity}
-                      </p>
-                    </div>
-                    
-                    <div className="min-w-max">
-                      <p className="text-sm text-gray-600 mb-1">Last Maintenance</p>
-                      <p className="font-bold text-sm">{system.lastMaintenance}</p>
-                    </div>
-                    
-                    {system.scheduledDate && (
-                      <div className="min-w-max">
-                        <p className="text-sm text-gray-600 mb-1">Scheduled Maintenance</p>
-                        <p className="font-bold text-sm text-green-600">{system.scheduledDate}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex gap-2">
-                  {system.status !== 'good' && (
-                    <Button 
-                      onClick={() => openMaintenanceModal(system.id)}
-                      size="sm" 
-                      className="bg-green-600 hover:bg-green-700 text-white text-xs"
-                    >
-                      {system.scheduledDate ? (
-                        <>
-                          <Edit className="h-3 w-3 mr-1" />
-                          Edit
-                        </>
-                      ) : (
-                        <>
-                          <Wrench className="h-3 w-3 mr-1" />
-                          Schedule
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  <Button 
-                    onClick={() => handleRemoveSystem(system.id)}
-                    size="sm" 
-                    className="bg-red-600 hover:bg-red-700 text-white text-xs"
-                  >
-                    <Trash2 className="h-3 w-3 mr-1" />
-                    Remove
-                  </Button>
-                </div>
-              </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500" />
+            <span className="ml-3 text-gray-600">Loading systems...</span>
+          </div>
+        ) : filteredSystems.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-center text-gray-500">
+              {searchQuery ? 'No systems match your search.' : 'No systems found. Add a new bin to get started.'}
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          filteredSystems.map((system) => (
+            <Card key={system.id}>
+              <CardContent className="p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-3">
+                      <p className="font-bold text-lg text-gray-900">{system.id}</p>
+                      {getStatusBadge(system.status)}
+                    </div>
+                    <p className="text-sm text-gray-900 font-medium mb-4">{system.location}</p>
+
+                    <div className="flex gap-6 overflow-x-auto pb-2">
+                      <div className="min-w-max">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                          <Activity className="h-4 w-4" />
+                          <span>Sensors</span>
+                        </div>
+                        <p className={`font-bold ${system.sensors === 'online' ? 'text-green-600' : 'text-red-600'}`}>
+                          {system.sensors === 'online' ? 'Online' : 'Offline'}
+                        </p>
+                      </div>
+
+                      <div className="min-w-max">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                          <Battery className="h-4 w-4" />
+                          <span>Battery</span>
+                        </div>
+                        <p className={`font-bold ${getBatteryColor(system.battery)}`}>
+                          {system.battery}%
+                        </p>
+                      </div>
+
+                      <div className="min-w-max">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                          <Wifi className="h-4 w-4" />
+                          <span>Connectivity</span>
+                        </div>
+                        <p className={`font-bold capitalize ${getConnectivityColor(system.connectivity)}`}>
+                          {system.connectivity}
+                        </p>
+                      </div>
+
+                      <div className="min-w-max">
+                        <p className="text-sm text-gray-600 mb-1">Last Maintenance</p>
+                        <p className="font-bold text-sm">{system.lastMaintenance}</p>
+                      </div>
+
+                      {system.scheduledDate && (
+                        <div className="min-w-max">
+                          <p className="text-sm text-gray-600 mb-1">Scheduled Maintenance</p>
+                          <p className="font-bold text-sm text-green-600">{system.scheduledDate}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    {system.status !== 'good' && (
+                      <Button
+                        onClick={() => openMaintenanceModal(system.id)}
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 text-white text-xs"
+                      >
+                        {system.scheduledDate ? (
+                          <>
+                            <Edit className="h-3 w-3 mr-1" />
+                            Edit
+                          </>
+                        ) : (
+                          <>
+                            <Wrench className="h-3 w-3 mr-1" />
+                            Schedule
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    <Button
+                      onClick={() => handleRemoveSystem(system.id)}
+                      size="sm"
+                      className="bg-red-600 hover:bg-red-700 text-white text-xs"
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
 
-      <ScheduleMaintenanceModal 
-        isOpen={isModalOpen} 
-        onClose={closeMaintenanceModal} 
+      <ScheduleMaintenanceModal
+        isOpen={isModalOpen}
+        onClose={closeMaintenanceModal}
         systemId={selectedSystem}
         onSchedule={handleScheduleMaintenance}
       />
-      <ConfirmationModal 
+      <ConfirmationModal
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}
         onConfirm={confirmAction?.onConfirm || (() => {})}
         title={confirmAction?.title || ''}
         message={confirmAction?.message || ''}
       />
-      <AddBinModal 
+      <AddBinModal
         isOpen={isAddBinModalOpen}
         onClose={() => setIsAddBinModalOpen(false)}
         onAddBin={handleAddBin}
