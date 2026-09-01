@@ -7,7 +7,7 @@ import {
   signOut,
   type UserCredential,
 } from "firebase/auth";
-import { getDatabase, ref, onValue, get, push, set, update } from "firebase/database";
+import { getDatabase, ref, onValue, get, push, set, update, remove } from "firebase/database";
 
 interface FirebaseEnv {
   VITE_FIREBASE_API_KEY?: string;
@@ -140,6 +140,7 @@ export async function addUser(userData: {
   phone?: string;
   team: string;
   role?: string;
+  status?: string;
 }): Promise<any> {
   const usersRef = ref(db, 'users');
   const newUserRef = push(usersRef);
@@ -155,12 +156,28 @@ export async function addUser(userData: {
     team: userData.team,
     role: userData.role || 'staff',
     department: userData.team || 'Operations',
-    status: 'active',
+    status: userData.status || 'active',
     joinedDate: timestamp,
     lastLogin: timestamp,
+    createdAt: new Date().toISOString(),
   };
   await set(newUserRef, userRecord);
   return { id: newUserRef.key, ...userRecord };
+}
+
+export async function updateUserStatus(userId: string, updates: Partial<{
+  status: string;
+  role: string;
+  team: string;
+  approvedAt: string;
+  rejectionReason: string;
+  approvalNotes: string;
+}>): Promise<void> {
+  await update(ref(db, `users/${userId}`), updates);
+}
+
+export async function removeUser(userId: string): Promise<void> {
+  await remove(ref(db, `users/${userId}`));
 }
 
 export async function getUsers(): Promise<any> {

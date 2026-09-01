@@ -1,6 +1,8 @@
 // src/App.tsx
 import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { RouterProvider } from 'react-router';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
 
 import { createAppRouter } from './app/routes'; 
 
@@ -13,9 +15,29 @@ const LoadingFallback = () => (
 );
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(() => Boolean(localStorage.getItem('omniToken')));
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null); // null = loading
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const router = useMemo(() => createAppRouter(() => setIsLoggedIn(false)), []);
+
+  // Check Firebase Auth state on app load
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      // Only treat the user as "logged in" for app routing when their email is verified.
+      // Firebase automatically signs in newly created users, but we want to require
+      // email verification before giving access to the dashboard.
+      if (user && user.emailVerified) {
+        setIsLoggedIn(true);
+        localStorage.setItem('omniToken', 'authenticated');
+      } else {
+        setIsLoggedIn(false);
+        localStorage.removeItem('omniToken');
+      }
+      setIsInitialized(true);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleLoginSuccess = (token?: string) => {
     if (token) {
@@ -24,11 +46,10 @@ export default function App() {
     setIsLoggedIn(true);
   };
 
-  useEffect(() => {
-    if (!isLoggedIn) {
-      localStorage.removeItem('omniToken');
-    }
-  }, [isLoggedIn]);
+  // Show loading while checking auth state
+  if (!isInitialized || isLoggedIn === null) {
+    return <LoadingFallback />;
+  }
 
   // If logged in, show the dashboard application
   if (isLoggedIn) {

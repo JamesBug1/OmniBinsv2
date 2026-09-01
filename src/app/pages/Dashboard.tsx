@@ -1,10 +1,3 @@
-// ============================================================================
-// DASHBOARD - Main dashboard overview with metrics and charts
-// ============================================================================
-
-// ============================================================================
-// IMPORTS
-// ============================================================================
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ref, onValue } from 'firebase/database';
@@ -14,15 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Trash2, AlertCircle, Wind, Droplet } from 'lucide-react';
 
-// ============================================================================
-// DATA & CONSTANTS
-// ============================================================================
 const recentAlerts: any[] = [];
 const weeklyCollections: any[] = [];
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
 export function Dashboard() {
   const [stats, setStats] = useState({
     totalBins: 0,
@@ -50,10 +37,19 @@ export function Dashboard() {
             .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
         : [];
 
-      const binIds = new Set(records.map((rec) => rec.id));
-      const fullBins = records.filter((rec) => rec.weight >= 80).length;
-      const highRotIndex = records.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
-      const activeNeutralization = records.filter((rec) => rec.nh3 > 35 || rec.ch4 > 70).length;
+      const latestByBin = new Map<string, any>();
+      records.forEach((rec) => {
+        const binKey = String(rec.node ?? rec.location ?? rec.id ?? 'unknown-bin');
+        const existing = latestByBin.get(binKey);
+        if (!existing || (rec.timestamp ?? 0) >= (existing.timestamp ?? 0)) {
+          latestByBin.set(binKey, rec);
+        }
+      });
+
+      const latestBinRecords = Array.from(latestByBin.values());
+      const fullBins = latestBinRecords.filter((rec) => rec.weight >= 80).length;
+      const highRotIndex = latestBinRecords.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
+      const activeNeutralization = latestBinRecords.filter((rec) => rec.nh3 > 35 || rec.ch4 > 70).length;
 
       const points = records.slice(-24).map((rec) => ({
         time: rec.timestamp
@@ -65,7 +61,6 @@ export function Dashboard() {
 
       setStats((prev) => ({
         ...prev,
-        totalBins: binIds.size || prev.totalBins,
         fullBins,
         highRotIndex,
         activeNeutralization,
@@ -87,7 +82,6 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Stats Overview */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
@@ -117,7 +111,6 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Recent Alerts */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.4 }}>
           <Card className="h-full">
             <CardHeader><CardTitle>Recent Alerts & Notifications</CardTitle></CardHeader>

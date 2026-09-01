@@ -18,8 +18,9 @@ import {
   Clock, Users, Shield, Zap, Phone, AlertCircle, 
   CheckCircle
 } from 'lucide-react';
-import { FcGoogle } from 'react-icons/fc';
-import { signInWithEmail, signInWithGoogle, getIdToken } from '../../firebase';
+import { signInWithEmail, getIdToken } from '../../firebase';
+import SignupModal from '../components/SignupModal';
+import PasswordResetModal from '../components/PasswordResetModal';
 
 interface LandingPageProps {
   onLoginSuccess?: (token?: string) => void;
@@ -35,11 +36,12 @@ interface LoginModalProps {
   onLoginSuccess?: () => void;
 }
 
-function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
+function LoginModal({ isOpen, onClose, onLoginSuccess, onRequestSignup }: LoginModalProps & { onRequestSignup?: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetOpen, setIsResetOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,23 +56,6 @@ function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
     } catch (err) {
       console.error('Login failed:', err);
       setError('Login failed. Please check your credentials and try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    setError('');
-    setIsLoading(true);
-
-    try {
-      await signInWithGoogle();
-      const token = await getIdToken();
-      onLoginSuccess?.(token ?? undefined);
-      onClose();
-    } catch (err) {
-      console.error('Google sign-in failed:', err);
-      setError('Google sign-in failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +95,7 @@ function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
                     <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-600" />
                     <span className="text-gray-600 ">Remember me</span>
                   </label>
-                  <a href="#" className="text-green-600 hover:text-green-700 font-medium cursor-pointer">Forgot password?</a>
+                  <button type="button" onClick={() => setIsResetOpen(true)} className="text-green-600 hover:text-green-700 font-medium cursor-pointer">Forgot password?</button>
                 </div>
 
                 {error && <p className="text-sm text-red-600">{error}</p>}
@@ -119,13 +104,20 @@ function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </Button>
 
-                <div className="grid gap-3 pt-2">
-                  <Button type="button" className="w-full border border-gray-300 bg-white text-gray-900 hover:bg-gray-50" onClick={handleGoogleSignIn} disabled={isLoading}>
-                    <FcGoogle className="mr-2 inline-block h-4 w-4" />
-                    Continue with Google
+                <div className="pt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full text-green-600 border-green-600"
+                    onClick={() => { onClose?.(); onRequestSignup?.(); }}
+                    disabled={isLoading}
+                  >
+                    Create an account
                   </Button>
                 </div>
+
               </form>
+              <PasswordResetModal isOpen={isResetOpen} onClose={() => setIsResetOpen(false)} />
             </motion.div>
           </div>
         </>
@@ -156,13 +148,13 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
             <span className="text-xl font-bold text-gray-900 hover:text-box-shadow-gray-600 ">OMNIBINS</span>
           </button>
 
-          <div className="hidden md:flex md:items-center md:gap-8">
+            <div className="hidden md:flex md:items-center md:gap-8">
             <a href="#features" className="text-gray-700 hover:text-green-600 transition-colors">Features</a>
             <a href="#dashboard" className="text-gray-700 hover:text-green-600 transition-colors">Dashboard</a>
             <a href="#how-it-works" className="text-gray-700 hover:text-green-600 transition-colors">How It Works</a>
             <a href="#benefits" className="text-gray-700 hover:text-green-600 transition-colors">Benefits</a>
-            <Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onContactClick}>Contact Us</Button>
-            <Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onLoginClick}>Login</Button>
+              <Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onContactClick}>Contact Us</Button>
+              <Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onLoginClick}>Login</Button>
           </div>
 
           <div className="md:hidden">
@@ -172,7 +164,7 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
           </div>
         </div>
 
-        {isOpen && (
+            {isOpen && (
           <div className="md:hidden py-4 space-y-4">
             {['features', 'dashboard', 'how-it-works', 'benefits'].map((item) => (
               <a key={item} href={`#${item}`} className="block text-gray-700 hover:text-green-600 transition-colors" onClick={() => setIsOpen(false)}>
@@ -669,6 +661,7 @@ function ContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
 
 export function LandingPage({ onLoginSuccess }: LandingPageProps) {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isSignupOpen, setIsSignupOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
 
   return (
@@ -680,7 +673,8 @@ export function LandingPage({ onLoginSuccess }: LandingPageProps) {
       <HowItWorksSection />
       <BenefitsSection />
       <FooterSection />
-      <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLoginSuccess={onLoginSuccess} />
+      <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLoginSuccess={onLoginSuccess} onRequestSignup={() => setIsSignupOpen(true)} />
+      <SignupModal isOpen={isSignupOpen} onClose={() => setIsSignupOpen(false)} onSignupSuccess={() => { setIsSignupOpen(false); onLoginSuccess?.(); }} />
       <ContactModal isOpen={isContactOpen} onClose={() => setIsContactOpen(false)} />
     </>
   );

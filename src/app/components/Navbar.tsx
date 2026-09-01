@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Menu, X, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { LoginModal } from './LoginModal';
@@ -10,6 +11,7 @@ interface NavbarProps {
 export function Navbar({ onLoginSuccess }: NavbarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const navigate = useNavigate();
 
   const handleLoginSuccess = () => {
     setIsLoginOpen(false);

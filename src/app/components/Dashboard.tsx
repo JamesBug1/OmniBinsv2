@@ -60,7 +60,6 @@ export function Dashboard() {
           </p>
         </motion.div>
 
-        {/* Stats Overview */}
         <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -135,7 +134,6 @@ export function Dashboard() {
           </motion.div>
         </div>
 
-        {/* Bin Status Table */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -188,7 +186,6 @@ export function Dashboard() {
           </Card>
         </motion.div>
 
-        {/* Charts */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}

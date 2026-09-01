@@ -7,13 +7,13 @@
 // ============================================================================
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ref, set, onValue, remove } from 'firebase/database';
-import { db } from '../../firebase';
+import { ref, set, onValue, remove, push } from 'firebase/database';
+import { db, auth } from '../../firebase';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Battery, Wifi, Activity, AlertTriangle, CheckCircle, Wrench, X, Search, Edit, Trash2 } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle, Wrench, X, Search, Edit, Trash2 } from 'lucide-react';
 
 // ============================================================================
 // MODAL COMPONENTS
@@ -22,19 +22,27 @@ const ScheduleMaintenanceModal = ({
   isOpen,
   onClose,
   systemId,
+  users,
   onSchedule,
 }: {
   isOpen: boolean;
   onClose: () => void;
   systemId: string;
-  onSchedule: (date: string) => void;
+  users: any[];
+  onSchedule: (date: string, userId: string) => void;
 }) => {
   const [maintenanceDate, setMaintenanceDate] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSchedule(maintenanceDate);
+    if (!maintenanceDate || !selectedUserId) {
+      alert('Please select a maintenance date and assign a user.');
+      return;
+    }
+    onSchedule(maintenanceDate, selectedUserId);
     setMaintenanceDate('');
+    setSelectedUserId('');
     onClose();
   };
 
@@ -81,6 +89,27 @@ const ScheduleMaintenanceModal = ({
                   className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">
+                  Assign to user
+                </label>
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+                  required
+                >
+                  <option value="">Select a user</option>
+                  {users
+                    .filter((user) => user?.status !== 'rejected' && user?.status !== 'pending')
+                    .map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name || user.email || user.id}
+                      </option>
+                    ))}
+                </select>
               </div>
 
               <div className="flex gap-2 pt-4">
@@ -168,29 +197,51 @@ const AddBinModal = ({
 }) => {
   const [binId, setBinId] = useState('');
   const [location, setLocation] = useState('');
+  const [sensorDataName, setSensorDataName] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!binId || !location) {
+    if (!binId || !location || !sensorDataName) {
       alert('Please fill in all required fields');
       return;
     }
 
-    const newSystem = {
-      id: binId,
-      location,
-      sensors: 'online',
-      battery: 100,
-      connectivity: 'excellent',
-      lastMaintenance: 'Just added',
-      status: 'good',
-      scheduledDate: null,
-    };
+    try {
+      const binsSnapshot = await (await import('firebase/database')).get(ref(db, 'bins'));
+      const existingBins = binsSnapshot.val() || {};
+      const normalizedNewId = binId.trim();
 
-    onAddBin(newSystem);
-    setBinId('');
-    setLocation('');
-    onClose();
+      if (Object.prototype.hasOwnProperty.call(existingBins, normalizedNewId)) {
+        alert(`System ID "${normalizedNewId}" already exists. Please use a unique bin number.`);
+        return;
+      }
+
+      const sensorSnapshot = await (await import('firebase/database')).get(ref(db, 'sensor_data'));
+      const sensorData = sensorSnapshot.val() || {};
+      const hasMatchingSensor = Object.entries(sensorData).some(([key, value]) => {
+        const record = typeof value === 'object' && value !== null ? value : {};
+        const sensorName = String(record.node ?? record.location ?? key ?? '').toLowerCase();
+        return sensorName === sensorDataName.trim().toLowerCase() || key.toLowerCase() === sensorDataName.trim().toLowerCase();
+      });
+
+      const newSystem = {
+        id: normalizedNewId,
+        location,
+        sensors: hasMatchingSensor ? 'online' : 'offline',
+        lastMaintenance: 'Just added',
+        status: hasMatchingSensor ? 'good' : 'critical',
+        scheduledDate: null,
+      };
+
+      onAddBin(newSystem);
+      setBinId('');
+      setLocation('');
+      setSensorDataName('');
+      onClose();
+    } catch (error) {
+      console.error('Failed to validate sensor data:', error);
+      alert('Unable to validate sensor data. Please try again.');
+    }
   };
 
   return (
@@ -243,6 +294,17 @@ const AddBinModal = ({
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Sensor Data Name</label>
+                <Input
+                  placeholder="e.g., BIN-010"
+                  value={sensorDataName}
+                  onChange={(e) => setSensorDataName(e.target.value)}
+                  className="text-gray-900 text-sm"
+                  required
+                />
+              </div>
+
               <div className="flex gap-2 pt-4">
                 <button
                   type="button"
@@ -271,6 +333,7 @@ const AddBinModal = ({
 // ============================================================================
 export function Maintenance() {
   const [systems, setSystems] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSystem, setSelectedSystem] = useState<string>('');
@@ -288,6 +351,7 @@ export function Maintenance() {
     const binsRef = ref(db, 'bins');
     const unsubscribe = onValue(binsRef, (snapshot) => {
       const data = snapshot.val();
+      console.debug('Realtime bins snapshot raw:', data);
       if (data) {
         const loaded = Object.entries(data).map(([key, value]: [string, any]) => ({
           id: key,
@@ -298,12 +362,30 @@ export function Maintenance() {
           lastMaintenance: value.lastMaintenance ?? 'Unknown',
           status: value.status ?? 'good',
           scheduledDate: value.scheduledDate ?? null,
+          assignedTo: value.assignedTo ?? 'Unassigned',
         }));
+        console.debug('Mapped systems:', loaded);
         setSystems(loaded);
       } else {
         setSystems([]);
       }
       setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const usersRef = ref(db, 'users');
+    const unsubscribe = onValue(usersRef, (snapshot) => {
+      const data = snapshot.val();
+      const loaded = data
+        ? Object.entries(data).map(([key, value]) => ({
+            id: key,
+            ...(typeof value === 'object' && value !== null ? value : {}),
+          }))
+        : [];
+      setUsers(loaded);
     });
 
     return () => unsubscribe();
@@ -318,12 +400,54 @@ export function Maintenance() {
     setIsModalOpen(false);
   };
 
-  // ✅ Save scheduled date to Firebase
-  const handleScheduleMaintenance = async (date: string) => {
+  // ✅ Save scheduled date and user assignment to Firebase
+  const handleScheduleMaintenance = async (date: string, userId: string) => {
     try {
+      // Require an authenticated user to satisfy realtime DB rules
+      if (!auth || !auth.currentUser) {
+        alert('You must be signed in to schedule maintenance. Please sign in and try again.');
+        return;
+      }
+      if (!date || !userId) {
+        alert('Please select both a date and a user.');
+        return;
+      }
+
+      const selectedUser = users.find((user) => user.id === userId);
+
+      console.log('Scheduling maintenance:', { selectedSystem, date, userId });
+
       await set(ref(db, `bins/${selectedSystem}/scheduledDate`), date);
+      console.log(`Wrote bins/${selectedSystem}/scheduledDate -> ${date}`);
+
+      await set(
+        ref(db, `bins/${selectedSystem}/assignedTo`),
+        selectedUser ? `${selectedUser.name || 'User'} (${selectedUser.email || 'No email'})` : 'Unassigned'
+      );
+      console.log(`Wrote bins/${selectedSystem}/assignedTo -> ${selectedUser ? selectedUser.id : 'Unassigned'}`);
+
+      if (selectedUser) {
+        // Create a new task using the pushed ref directly so the ref contains the generated key
+        const newTaskRef = push(ref(db, 'tasks'));
+        const taskId = newTaskRef.key;
+        console.log('Creating task ref', taskId);
+        await set(newTaskRef, {
+          id: taskId,
+          type: 'maintenance',
+          binId: selectedSystem,
+          assignedUserId: selectedUser.id,
+          assignedUserName: selectedUser.name || 'User',
+          assignedUserEmail: selectedUser.email || '',
+          scheduledDate: date,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+        });
+        console.log('Task created', taskId);
+      }
+
+      alert(`Maintenance scheduled for ${selectedSystem}${selectedUser ? ` and assigned to ${selectedUser.name || selectedUser.email}` : ''}.`);
     } catch (error) {
-      console.error('Failed to save scheduled date:', error);
+      console.error('Failed to save maintenance task:', error);
       alert('Unable to save maintenance date. Check your database connection.');
     }
   };
@@ -373,18 +497,6 @@ export function Maintenance() {
       default:
         return <Badge className="bg-green-500 text-white">Good</Badge>;
     }
-  };
-
-  const getBatteryColor = (level: number) => {
-    if (level < 20) return 'text-red-600';
-    if (level < 50) return 'text-yellow-500';
-    return 'text-green-600';
-  };
-
-  const getConnectivityColor = (level: string) => {
-    if (level === 'poor') return 'text-red-600';
-    if (level === 'good') return 'text-yellow-500';
-    return 'text-green-600';
   };
 
   const criticalCount = systems.filter((s) => s.status === 'critical').length;
@@ -491,26 +603,6 @@ export function Maintenance() {
                       </div>
 
                       <div className="min-w-max">
-                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                          <Battery className="h-4 w-4" />
-                          <span>Battery</span>
-                        </div>
-                        <p className={`font-bold ${getBatteryColor(system.battery)}`}>
-                          {system.battery}%
-                        </p>
-                      </div>
-
-                      <div className="min-w-max">
-                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                          <Wifi className="h-4 w-4" />
-                          <span>Connectivity</span>
-                        </div>
-                        <p className={`font-bold capitalize ${getConnectivityColor(system.connectivity)}`}>
-                          {system.connectivity}
-                        </p>
-                      </div>
-
-                      <div className="min-w-max">
                         <p className="text-sm text-gray-600 mb-1">Last Maintenance</p>
                         <p className="font-bold text-sm">{system.lastMaintenance}</p>
                       </div>
@@ -519,6 +611,13 @@ export function Maintenance() {
                         <div className="min-w-max">
                           <p className="text-sm text-gray-600 mb-1">Scheduled Maintenance</p>
                           <p className="font-bold text-sm text-green-600">{system.scheduledDate}</p>
+                        </div>
+                      )}
+
+                      {system.assignedTo && (
+                        <div className="min-w-max">
+                          <p className="text-sm text-gray-600 mb-1">Assigned To</p>
+                          <p className="font-bold text-sm text-gray-900">{system.assignedTo}</p>
                         </div>
                       )}
                     </div>
@@ -564,6 +663,7 @@ export function Maintenance() {
         isOpen={isModalOpen}
         onClose={closeMaintenanceModal}
         systemId={selectedSystem}
+        users={users}
         onSchedule={handleScheduleMaintenance}
       />
       <ConfirmationModal

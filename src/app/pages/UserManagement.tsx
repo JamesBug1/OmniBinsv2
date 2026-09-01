@@ -13,7 +13,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Shield, User, Users, Settings, X, Search, Edit2, Save, Mail, Phone, Calendar, Trash2, Upload, Clock } from 'lucide-react';
-import { addUser, getUsers } from '../../firebase';
+import { auth, addUser, getUsers, removeUser, updateUserStatus, db } from '../../firebase';
+import { ref, get, update as firebaseUpdate } from 'firebase/database';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
@@ -23,8 +25,107 @@ const users: UserData[] = [];
 // ============================================================================
 // MODAL COMPONENTS
 // ============================================================================
+function ApprovalModal({ isOpen, onClose, user, onApproved }: { isOpen: boolean; onClose: () => void; user: UserData | null; onApproved: () => void }) {
+  const [role, setRole] = useState('staff');
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      setRole(user.role || 'staff');
+      setReason('');
+    }
+  }, [user]);
+
+  if (!user) return null;
+
+  const handleApprove = async () => {
+    try {
+      await updateUserStatus(user.id, {
+        status: 'active',
+        role,
+        approvedAt: new Date().toISOString(),
+        rejectionReason: '',
+        approvalNotes: reason || 'Approved by admin',
+      });
+      onApproved();
+      onClose();
+    } catch (error) {
+      console.error('Failed to approve user:', error);
+      alert('Failed to approve user. Please try again.');
+    }
+  };
+
+  const handleReject = async () => {
+    try {
+      await updateUserStatus(user.id, {
+        status: 'rejected',
+        rejectionReason: reason || 'No reason provided',
+        approvalNotes: reason || 'Rejected by admin',
+      });
+      onApproved();
+      onClose();
+    } catch (error) {
+      console.error('Failed to reject user:', error);
+      alert('Failed to reject user. Please try again.');
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl p-6" onClick={(e) => e.stopPropagation()}>
+              <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"><X className="h-6 w-6" /></button>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Approve Registration</h2>
+              <p className="text-sm text-gray-600 mb-4">Review the applicant before granting access.</p>
+              <div className="space-y-3 mb-5">
+                <div>
+                  <p className="text-xs uppercase text-gray-500">Name</p>
+                  <p className="font-semibold text-gray-900">{user.name}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-gray-500">Email</p>
+                  <p className="font-semibold text-gray-900">{user.email}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-gray-500">Team</p>
+                  <p className="font-semibold text-gray-900">{user.department || user.team || 'Operations'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assign role</label>
+                  <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <option value="staff">Staff</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason / note</label>
+                  <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    rows={3}
+                    placeholder="Optional note for approval or rejection"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button type="button" variant="outline" onClick={onClose} className="flex-1 cursor-pointer">Cancel</Button>
+                <Button type="button" onClick={handleReject} className="flex-1 bg-red-600 hover:bg-red-700 text-white cursor-pointer">Reject</Button>
+                <Button type="button" onClick={handleApprove} className="flex-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer">Approve</Button>
+              </div>
+            </motion.div>
+          </div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
 function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClose: () => void; onUserAdded: () => void }) {
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', team: '', role: '' });
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '', team: '', role: '' });
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
 
   const handleTeamChange = (value: string) => {
@@ -45,29 +146,43 @@ function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClo
       alert('Team is required');
       return;
     }
+    if (!formData.email || !formData.email.includes('@')) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+    if (!formData.password || formData.password.length < 8 || !/\d/.test(formData.password)) {
+      alert('Password must be at least 8 characters and include at least one number.');
+      return;
+    }
     if (formData.team === 'N/A' && !formData.role) {
       alert('Role is required when team is N/A');
       return;
     }
 
     try {
+      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const userData = {
         name: formData.name,
         email: formData.email || '',
         phone: formData.phone || '',
         team: formData.team,
-        role: formData.role || 'staff'
+        role: formData.role || 'staff',
+        status: 'active',
       };
 
       await addUser(userData);
+      if (userCredential?.user) {
+        await userCredential.user.sendEmailVerification();
+      }
       alert('User added successfully!');
-      setFormData({ name: '', email: '', phone: '', team: '', role: '' });
+      setFormData({ name: '', email: '', phone: '', password: '', team: '', role: '' });
       setShowRoleDropdown(false);
       onClose();
       onUserAdded();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to add user:', error);
-      alert('Failed to add user. Please try again.');
+      const message = error?.message || 'Failed to add user. Please try again.';
+      alert(message);
     }
   };
 
@@ -90,6 +205,10 @@ function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClo
                   <Input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="john@omnibins.com" />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password <span className="text-red-500">*</span></label>
+                  <Input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} placeholder="Minimum 8 characters with a number" required />
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
                   <Input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} placeholder="0900-000-0000" />
                 </div>
@@ -109,8 +228,6 @@ function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClo
                     <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500" required>
                       <option value="">Select Role</option>
                       <option value="staff">Staff</option>
-                      <option value="manager">Manager</option>
-                      <option value="analyst">Analyst</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
@@ -147,11 +264,13 @@ interface ProfileModalProps {
   userData: UserData;
   onUpdateUserData: (data: UserData) => void;
   onRemoveUser: () => void;
+  showRemoveButton?: boolean;
 }
 
-function ProfileModal({ isOpen, onClose, userData, onUpdateUserData, onRemoveUser }: ProfileModalProps) {
+function ProfileModal({ isOpen, onClose, userData, onUpdateUserData, onRemoveUser, showRemoveButton = true }: ProfileModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<UserData>(userData);
+  const isRemovableUser = String(userData.role || '').toLowerCase() !== 'admin';
 
   const handleSave = () => {
     onUpdateUserData(editedData);
@@ -325,8 +444,6 @@ function ProfileModal({ isOpen, onClose, userData, onUpdateUserData, onRemoveUse
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                       >
                         <option value="staff">Staff</option>
-                        <option value="manager">Manager</option>
-                        <option value="analyst">Analyst</option>
                         <option value="admin">Admin</option>
                       </select>
                     ) : (
@@ -381,7 +498,7 @@ function ProfileModal({ isOpen, onClose, userData, onUpdateUserData, onRemoveUse
                         <Edit2 className="h-4 w-4 mr-2" />
                         Edit Profile
                       </Button>
-                      {userData.role !== 'admin' && (
+                      {showRemoveButton && isRemovableUser && (
                         <Button
                           onClick={handleRemove}
                           className="flex-1 bg-red-600 hover:bg-red-700 text-white cursor-pointer"
@@ -412,6 +529,8 @@ export function UserManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [pendingApprovalUser, setPendingApprovalUser] = useState<UserData | null>(null);
 
   const loadUsers = async () => {
     try {
@@ -444,41 +563,79 @@ export function UserManagement() {
     user.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleUpdateUserData = (updatedData: UserData) => {
-    setUserList(userList.map(user => user.id === updatedData.id ? updatedData : user));
+  const handleUpdateUserData = async (updatedData: UserData) => {
+    try {
+      // Persist changes to Realtime Database
+      const updates: Partial<any> = {
+        name: updatedData.name,
+        email: updatedData.email,
+        phone: updatedData.phone,
+        role: updatedData.role,
+        department: updatedData.department,
+      };
+      await updateUserStatus(updatedData.id, updates);
+      // Update local state after successful save
+      setUserList(userList.map(user => user.id === updatedData.id ? updatedData : user));
+
+      // Propagate changes to any bins where this user is assigned (match by email)
+      try {
+        const binsSnapshot = await get(ref(db, 'bins'));
+        const bins = binsSnapshot.val() || {};
+        const updates: Record<string, any> = {};
+        Object.entries(bins).forEach(([binId, binValue]: [string, any]) => {
+          const assigned = (binValue && binValue.assignedTo) ? String(binValue.assignedTo) : '';
+          if (assigned.includes(updatedData.email)) {
+            updates[`bins/${binId}/assignedTo`] = `${updatedData.name} (${updatedData.email})`;
+          }
+        });
+        if (Object.keys(updates).length > 0) {
+          await firebaseUpdate(ref(db), updates);
+        }
+      } catch (err) {
+        console.debug('Failed to propagate user changes to bins:', err);
+      }
+      alert('User profile saved successfully.');
+    } catch (error) {
+      console.error('Failed to save user profile:', error);
+      alert('Failed to save user profile. Please try again.');
+    }
   };
 
-  const handleRemoveUser = () => {
-    if (selectedUser) {
-      setUserList(userList.filter(user => user.id !== selectedUser.id));
+  const handleRemoveUser = async () => {
+    if (!selectedUser) return;
+
+    try {
+      await removeUser(selectedUser.id);
+      setUserList(prev => prev.filter(user => user.id !== selectedUser.id));
+      setSelectedUser(null);
+      setIsProfileModalOpen(false);
+    } catch (error) {
+      console.error('Failed to remove user:', error);
+      alert('Failed to remove user. Please try again.');
     }
   };
 
   const getRoleBadge = (role: string) => {
-    switch (role) {
+    switch (String(role || '').toLowerCase()) {
       case 'admin':
         return <Badge variant="destructive">Admin</Badge>;
-      case 'manager':
-        return <Badge className="bg-purple-500 text-white">Manager</Badge>;
-      case 'analyst':
-        return <Badge className="bg-blue-500 text-white">Analyst</Badge>;
       default:
         return <Badge className="bg-gray-500 text-white">Staff</Badge>;
     }
   };
 
   const getRoleIcon = (role: string) => {
-    switch (role) {
+    switch (String(role || '').toLowerCase()) {
       case 'admin':
         return <Shield className="h-8 w-8 text-red-500" />;
-      case 'manager':
-        return <Users className="h-8 w-8 text-purple-500" />;
       default:
         return <User className="h-8 w-8 text-gray-500" />;
     }
   };
 
+  const totalUsers = userList.filter(u => u.status !== 'rejected').length;
   const activeUsers = userList.filter(u => u.status === 'active').length;
+  const pendingUsers = userList.filter(u => u.status === 'pending');
 
   return (
     <div className="space-y-6">
@@ -509,7 +666,7 @@ export function UserManagement() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-900 font-semibold">Total Users</p>
-                <p className="text-2xl font-bold text-gray-900">{userList.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
               </div>
               <Users className="h-8 w-8 text-blue-500" />
             </div>
@@ -540,20 +697,6 @@ export function UserManagement() {
               </div>
             </div>
             <div className="flex items-start gap-3">
-              <Users className="h-5 w-5 text-purple-500 mt-0.5" />
-              <div>
-                <p className="font-bold">Manager</p>
-                <p className="text-gray-600">Collection management, worker assignment, reports</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <User className="h-5 w-5 text-blue-500 mt-0.5" />
-              <div>
-                <p className="font-bold">Analyst</p>
-                <p className="text-gray-600">View analytics, generate reports, data export</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
               <User className="h-5 w-5 text-gray-500 mt-0.5" />
               <div>
                 <p className="font-bold">Staff</p>
@@ -564,8 +707,38 @@ export function UserManagement() {
         </CardContent>
       </Card>
 
+      {pendingUsers.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900">Pending Approvals</h3>
+              <Badge className="bg-amber-500 text-white">{pendingUsers.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {pendingUsers.map((user) => (
+                <div key={user.id} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold text-gray-900">{user.name}</p>
+                    <p className="text-sm text-gray-700">{user.email}</p>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      setPendingApprovalUser(user);
+                      setIsApprovalModalOpen(true);
+                    }}
+                    className="bg-amber-500 hover:bg-amber-600 text-white"
+                  >
+                    Review
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="space-y-4">
-        {filteredUsers.map((user) => (
+        {filteredUsers.filter(user => user.status !== 'pending' && user.status !== 'rejected').map((user) => (
           <Card key={user.id}>
             <CardContent className="p-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -609,6 +782,15 @@ export function UserManagement() {
       </div>
 
       <AddUserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onUserAdded={loadUsers} />
+      <ApprovalModal
+        isOpen={isApprovalModalOpen}
+        onClose={() => {
+          setIsApprovalModalOpen(false);
+          setPendingApprovalUser(null);
+        }}
+        user={pendingApprovalUser}
+        onApproved={loadUsers}
+      />
       {selectedUser && (
         <ProfileModal
           isOpen={isProfileModalOpen}
@@ -616,6 +798,7 @@ export function UserManagement() {
           userData={selectedUser}
           onUpdateUserData={handleUpdateUserData}
           onRemoveUser={handleRemoveUser}
+          showRemoveButton={String(selectedUser.role || '').toLowerCase() !== 'admin'}
         />
       )}
     </div>

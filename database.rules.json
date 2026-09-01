@@ -17,6 +17,10 @@
       ".read": "auth != null",
       ".write": "auth != null"
     },
+    "tasks": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
     "bins": {
       ".read": "auth != null",
       ".write": "auth != null"

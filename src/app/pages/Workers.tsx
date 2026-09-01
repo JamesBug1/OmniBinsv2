@@ -190,21 +190,51 @@ export function Workers() {
     try {
       const users = await getUsers();
       const normalized = Array.isArray(users)
-        ? users.map((user: any) => ({
-            id: String(user.id),
-            name: String(user.name || user.fullName || 'Unnamed User'),
-            email: String(user.email || ''),
-            phone: String(user.phone || ''),
-            team: String(user.team || user.department || ''),
-            status: String(user.status || 'active'),
-            tasksCompleted: Number(user.tasksCompleted ?? 0),
-            tasksToday: Number(user.tasksToday ?? 0),
-          }))
+        ? users
+            .filter((user: any) => {
+              const status = String(user.status || 'active').toLowerCase();
+              return status === 'active' || status === 'inactive';
+            })
+            .map((user: any) => ({
+              id: String(user.id),
+              name: String(user.name || user.fullName || 'Unnamed User'),
+              email: String(user.email || ''),
+              phone: String(user.phone || ''),
+              team: String(user.team || user.department || ''),
+              status: String(user.status || 'active'),
+              tasksCompleted: Number(user.tasksCompleted ?? 0),
+              tasksToday: Number(user.tasksToday ?? 0),
+            }))
         : [];
       setWorkerList(normalized);
     } catch (error) {
       console.error('Failed to load workers:', error);
       setWorkerList([]);
+    }
+  };
+
+  // Load tasks and aggregate counts per user
+  const loadTasks = async () => {
+    try {
+      const tasksSnapshot = await (await import('firebase/database')).get(ref(db, 'tasks'));
+      const tasks = tasksSnapshot.val() || {};
+      const counts: Record<string, { completed: number; today: number }> = {};
+      Object.entries(tasks).forEach(([id, task]: [string, any]) => {
+        const assignedId = task.assignedUserId || '';
+        if (!counts[assignedId]) counts[assignedId] = { completed: 0, today: 0 };
+        if (task.status === 'completed') counts[assignedId].completed += 1;
+        // naive 'today' count: compare scheduledDate to today's ISO date prefix
+        const todayPrefix = new Date().toISOString().slice(0, 10);
+        if (String(task.scheduledDate || '').startsWith(todayPrefix)) counts[assignedId].today += 1;
+      });
+
+      setWorkerList(prev => prev.map(w => ({
+        ...w,
+        tasksCompleted: counts[w.id]?.completed ?? 0,
+        tasksToday: counts[w.id]?.today ?? 0,
+      })));
+    } catch (err) {
+      console.error('Failed to load tasks:', err);
     }
   };
 
@@ -237,6 +267,7 @@ export function Workers() {
   useEffect(() => {
     loadWorkers();
     loadTeams();
+    loadTasks();
   }, []);
 
   return (

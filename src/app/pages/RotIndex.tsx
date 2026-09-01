@@ -33,11 +33,26 @@ export function RotIndex() {
             .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
         : [];
 
-      const avgNh3Value = records.length ? records.reduce((sum, rec) => sum + rec.nh3, 0) / records.length : 0;
-      const avgCh4Value = records.length ? records.reduce((sum, rec) => sum + rec.ch4, 0) / records.length : 0;
-      const highRotBinCount = records.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
+      const latestByBin = new Map<string, any>();
+      records.forEach((rec) => {
+        const binKey = String(rec.node ?? rec.location ?? rec.id ?? 'unknown-bin');
+        const existing = latestByBin.get(binKey);
+        if (!existing || (rec.timestamp ?? 0) >= (existing.timestamp ?? 0)) {
+          latestByBin.set(binKey, rec);
+        }
+      });
 
-      const history = records.slice(-24).map((rec) => ({
+      const latestRecords = Array.from(latestByBin.values());
+
+      const avgNh3Value = latestRecords.length
+        ? latestRecords.reduce((sum, rec) => sum + rec.nh3, 0) / latestRecords.length
+        : 0;
+      const avgCh4Value = latestRecords.length
+        ? latestRecords.reduce((sum, rec) => sum + rec.ch4, 0) / latestRecords.length
+        : 0;
+      const highRotBinCount = latestRecords.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
+
+      const history = latestRecords.slice(-24).map((rec) => ({
         time: rec.timestamp
           ? new Date(rec.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
           : rec.id,
@@ -46,8 +61,27 @@ export function RotIndex() {
         rotIndex: (rec.nh3 + rec.ch4) / 2,
       }));
 
-      const topRot = [...records]
-        .map((rec) => ({ bin: rec.location, rotIndex: (rec.nh3 + rec.ch4) / 2 }))
+      const resolveBinLabel = (rec: any) => {
+        const raw = String(rec.node ?? rec.location ?? rec.id ?? 'Unknown');
+        const normalized = raw.toUpperCase().replace(/\s+/g, '');
+
+        if (normalized === 'NODE1' || normalized === 'NODE=1' || normalized === 'NODE=01') {
+          return 'BIN-10';
+        }
+
+        if (!raw || raw === 'Unknown' || raw.toLowerCase() === 'unknown' || normalized.startsWith('NODE=')) {
+          return null;
+        }
+
+        return raw;
+      };
+
+      const topRot = [...latestRecords]
+        .map((rec) => ({
+          bin: resolveBinLabel(rec),
+          rotIndex: (rec.nh3 + rec.ch4) / 2,
+        }))
+        .filter((item) => item.bin)
         .sort((a, b) => b.rotIndex - a.rotIndex)
         .slice(0, 6);
 

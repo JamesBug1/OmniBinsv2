@@ -2,26 +2,99 @@
 // MAP LOCATION - View and track bin locations on map
 // ============================================================================
 
-// ============================================================================
-// IMPORTS
-// ============================================================================
-import { useState } from 'react';
-import { motion } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { divIcon } from 'leaflet';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { MapPin, Navigation, Clock } from 'lucide-react';
+import { subscribeBins } from '../../firebase';
+import 'leaflet/dist/leaflet.css';
 
-// ============================================================================
-// DATA & CONSTANTS
-// ============================================================================
-// Sample data removed - connect to your database for live bin location data
-const bins: any[] = [];
+const campusCenter = {
+  lat: 9.8826944,
+  lng: 123.5993333,
+};
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
+const fallbackBins = [
+  {
+    id: 'Bin-10',
+    location: 'CTU Argao Campus, Cebu, Philippines',
+    status: 'normal',
+    capacity: 18,
+    lat: 9.8826944,
+    lng: 123.5993333,
+    lastCollection: '2026-06-15',
+  },
+  {
+    id: 'Bin-11',
+    location: 'CTU Argao Campus Main Gate',
+    status: 'near-full',
+    capacity: 67,
+    lat: 9.8826944,
+    lng: 123.5993333,
+    lastCollection: '2026-06-13',
+  },
+  {
+    id: 'Bin-12',
+    location: 'CTU Argao Campus Admin Building',
+    status: 'full',
+    capacity: 92,
+    lat: 9.8826944,
+    lng: 123.5993333,
+    lastCollection: '2026-06-10',
+  },
+];
+
+type BinMapEntry = {
+  id: string;
+  location: string;
+  status: string;
+  capacity: number;
+  lat: number;
+  lng: number;
+  lastCollection: string;
+};
+
+const normalizeBinRecord = (item: any): BinMapEntry => {
+  const id = String(item?.id ?? item?.binId ?? item?.name ?? 'Bin');
+  const rawLocation = item?.location ?? item?.address ?? item?.name ?? item?.node ?? 'CTU Argao Campus';
+  const rawLat = Number(item?.lat ?? item?.latitude ?? item?.coordinates?.lat ?? item?.location?.lat ?? campusCenter.lat);
+  const rawLng = Number(item?.lng ?? item?.longitude ?? item?.coordinates?.lng ?? item?.location?.lng ?? campusCenter.lng);
+  const capacity = Number(item?.capacity ?? item?.fillLevel ?? item?.percentage ?? 0);
+  const status = String(item?.status ?? (capacity >= 80 ? 'full' : capacity >= 60 ? 'near-full' : 'normal')).toLowerCase();
+
+  return {
+    id: id.startsWith('Bin') || id.startsWith('BIN') ? id : `Bin-${id}`,
+    location: String(rawLocation),
+    status,
+    capacity: Number.isFinite(capacity) ? capacity : 0,
+    lat: Number.isFinite(rawLat) ? rawLat : campusCenter.lat,
+    lng: Number.isFinite(rawLng) ? rawLng : campusCenter.lng,
+    lastCollection: item?.lastCollection ?? item?.updatedAt ?? item?.lastUpdated ?? 'Recently',
+  };
+};
+
 export function MapLocation() {
-  const [selectedBin, setSelectedBin] = useState<typeof bins[0] | null>(null);
+  const [liveBins, setLiveBins] = useState<BinMapEntry[]>(fallbackBins);
+  const [selectedBin, setSelectedBin] = useState<BinMapEntry | null>(fallbackBins[0]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeBins((bins) => {
+      const normalized = bins.length > 0
+        ? bins.map(normalizeBinRecord)
+        : fallbackBins;
+      setLiveBins(normalized);
+      setSelectedBin((current) => current ?? normalized[0] ?? fallbackBins[0]);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const priorityBins = useMemo(
+    () => [...liveBins].filter((bin) => bin.status === 'full' || bin.status === 'near-full').sort((a, b) => b.capacity - a.capacity),
+    [liveBins]
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -39,6 +112,37 @@ export function MapLocation() {
     }
   };
 
+  const getMarkerColor = (status: string) => {
+    switch (status) {
+      case 'full': return '#ef4444';
+      case 'near-full': return '#f59e0b';
+      default: return '#22c55e';
+    }
+  };
+
+  const getPinIcon = (status: string) =>
+    divIcon({
+      className: '',
+      html: `
+        <div style="
+          position: relative;
+          width: 26px;
+          height: 26px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transform: translateY(-2px);
+        ">
+          <svg width="26" height="26" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 4px rgba(0,0,0,0.25));">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5Z" fill="${getMarkerColor(status)}"/>
+          </svg>
+        </div>
+      `,
+      iconSize: [26, 26],
+      iconAnchor: [13, 26],
+      popupAnchor: [0, -20],
+    });
+
   return (
     <div className="space-y-6">
       <div>
@@ -47,36 +151,43 @@ export function MapLocation() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Map placeholder */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Bin Locations Map</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="relative aspect-video bg-blue-50 rounded-lg overflow-hidden">
-              {/* Map placeholder with pins */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="relative w-full h-full">
-                  {bins.map((bin, index) => {
-                    const top = 20 + (index * 12) % 60;
-                    const left = 15 + (index * 17) % 70;
-                    return (
-                      <motion.button
-                        key={bin.id}
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ delay: index * 0.1 }}
-                        onClick={() => setSelectedBin(bin)}
-                        className={`absolute transform -translate-x-1/2 -translate-y-1/2 ${getStatusColor(bin.status)} rounded-full p-3 shadow-lg hover:scale-110 transition-transform`}
-                        style={{ top: `${top}%`, left: `${left}%` }}
-                      >
-                        <MapPin className="h-5 w-5 text-white" />
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-3">
+            <div className="relative aspect-video rounded-lg overflow-hidden border border-gray-200">
+              <MapContainer
+                center={[campusCenter.lat, campusCenter.lng]}
+                zoom={16}
+                scrollWheelZoom={true}
+                className="h-full w-full"
+              >
+                <TileLayer
+                  attribution='&copy; OpenStreetMap contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+
+                {liveBins.map((bin) => (
+                  <Marker
+                    key={bin.id}
+                    position={[bin.lat, bin.lng]}
+                    icon={getPinIcon(bin.status)}
+                    eventHandlers={{ click: () => setSelectedBin(bin) }}
+                  >
+                    <Popup>
+                      <div className="space-y-1">
+                        <div className="font-bold">{bin.id}</div>
+                        <div className="text-sm text-gray-600">{bin.location}</div>
+                        <div className="text-sm">Status: {bin.status}</div>
+                        <div className="text-sm">Capacity: {bin.capacity}%</div>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+
+              <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-3 z-[400]">
                 <div className="flex items-center gap-2 text-sm mb-2">
                   <div className="w-3 h-3 rounded-full bg-green-600"></div>
                   <span className="text-gray-900 font-semibold">Normal</span>
@@ -94,7 +205,6 @@ export function MapLocation() {
           </CardContent>
         </Card>
 
-        {/* Selected bin details */}
         <Card>
           <CardHeader>
             <CardTitle>Bin Details</CardTitle>
@@ -144,35 +254,31 @@ export function MapLocation() {
         </Card>
       </div>
 
-      {/* Priority Collection List */}
       <Card>
         <CardHeader>
           <CardTitle>Priority Collection List</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {bins
-              .filter(bin => bin.status === 'full' || bin.status === 'near-full')
-              .sort((a, b) => b.capacity - a.capacity)
-              .map((bin) => (
-                <div
-                  key={bin.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-white cursor-pointer"
-                  onClick={() => setSelectedBin(bin)}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${getStatusColor(bin.status)}`}></div>
-                    <div>
-                      <p className="font-medium">{bin.id}</p>
-                      <p className="text-sm text-gray-600">{bin.location}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold">{bin.capacity}%</p>
-                    <p className="text-xs text-gray-500">{bin.lastCollection}</p>
+            {priorityBins.map((bin) => (
+              <div
+                key={bin.id}
+                className="flex items-center justify-between p-3 border rounded-lg hover:bg-white cursor-pointer"
+                onClick={() => setSelectedBin(bin)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${getStatusColor(bin.status)}`}></div>
+                  <div>
+                    <p className="font-medium">{bin.id}</p>
+                    <p className="text-sm text-gray-600">{bin.location}</p>
                   </div>
                 </div>
-              ))}
+                <div className="text-right">
+                  <p className="font-bold">{bin.capacity}%</p>
+                  <p className="text-xs text-gray-500">{bin.lastCollection}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

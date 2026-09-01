@@ -18,6 +18,7 @@ import {
   Clock, Users, Shield, Zap, Phone, AlertCircle, 
   CheckCircle
 } from 'lucide-react';
+import PasswordResetModal from './PasswordResetModal';
 
 // ============================================================================
 // SECTION 1: NAVBAR
@@ -99,6 +100,7 @@ interface HeroProps {
 
 export function Hero({ onLoginSuccess }: HeroProps) {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isResetOpen, setIsResetOpen] = useState(false);
 
   return (
     <>
@@ -576,11 +578,12 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
                     <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-600" />
                     <span className="text-gray-600">Remember me</span>
                   </label>
-                  <a href="#" className="text-green-600 hover:text-green-700 font-medium">Forgot password?</a>
+                  <button type="button" onClick={() => setIsResetOpen(true)} className="text-green-600 hover:text-green-700 font-medium">Forgot password?</button>
                 </div>
 
                 <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white">Sign In</Button>
               </form>
+              <PasswordResetModal isOpen={isResetOpen} onClose={() => setIsResetOpen(false)} />
             </motion.div>
           </div>
         </>

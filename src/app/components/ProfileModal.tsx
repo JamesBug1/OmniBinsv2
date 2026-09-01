@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -42,6 +42,11 @@ export function ProfileModal({
 }: ProfileModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<UserData>(userData);
+  // Keep local edited state in sync when parent provides new userData
+  useEffect(() => {
+    setEditedData(userData);
+  }, [userData]);
+  const isRemovableUser = String(userData.role || '').toLowerCase() !== 'admin';
 
   const handleSave = () => {
     onUpdateUserData(editedData);
@@ -215,8 +220,6 @@ export function ProfileModal({
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                       >
                         <option value="staff">Staff</option>
-                        <option value="manager">Manager</option>
-                        <option value="analyst">Analyst</option>
                         <option value="admin">Admin</option>
                       </select>
                     ) : (
@@ -271,7 +274,7 @@ export function ProfileModal({
                         <Edit2 className="h-4 w-4 mr-2" />
                         Edit Profile
                       </Button>
-                      {showRemoveButton && userData.role !== 'admin' && (
+                      {showRemoveButton && isRemovableUser && (
                         <Button
                           onClick={handleRemove}
                           className="flex-1 bg-red-600 hover:bg-red-700 text-white cursor-pointer"

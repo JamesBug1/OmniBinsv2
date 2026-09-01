@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { ProfileModal, UserData } from '../components/ProfileModal';
+import { getUsers, updateUserStatus } from '../../firebase';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -43,7 +44,7 @@ export function DashboardLayout({ onLogout }: DashboardLayoutProps) {
   const [userData, setUserData] = useState<UserData>({
     id: 1,
     name: 'Admin User',
-    email: 'admin@omnibins.com',
+    email: 'guesswhoami.true@gmail.com',
     phone: '+1 (555) 123-4567',
     role: 'admin',
     department: 'Administration',
@@ -62,6 +63,23 @@ export function DashboardLayout({ onLogout }: DashboardLayoutProps) {
 
   const handleUpdateUserData = (updatedData: UserData) => {
     setUserData(updatedData);
+    // Try to persist current user's profile if it exists in DB
+    (async () => {
+      try {
+        const users = await getUsers();
+        const found = Array.isArray(users) ? users.find(u => u.email === updatedData.email) : null;
+        if (found && found.id) {
+          await updateUserStatus(found.id, {
+            name: updatedData.name,
+            phone: updatedData.phone,
+            department: updatedData.department,
+            role: updatedData.role,
+          });
+        }
+      } catch (err) {
+        console.debug('Could not persist dashboard profile to DB:', err);
+      }
+    })();
   };
 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

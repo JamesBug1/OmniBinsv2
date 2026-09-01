@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Mail, Lock } from 'lucide-react';
-import { FcGoogle } from 'react-icons/fc';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { signInWithEmail, signInWithGoogle, getIdToken } from '../../firebase';
+import { signInWithEmail, getIdToken } from '../../firebase';
+import { useNavigate } from 'react-router-dom';
+import { SignupModal } from './SignupModal';
+import TermsModal from './TermsModal';
+import PasswordResetModal from './PasswordResetModal';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -13,6 +16,10 @@ interface LoginModalProps {
 }
 
 export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps) {
+  const navigate = useNavigate();
+  const [isSignupOpen, setIsSignupOpen] = useState(false);
+  const [isTermsOpen, setIsTermsOpen] = useState(false);
+  const [isResetOpen, setIsResetOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,23 +38,6 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
     } catch (err) {
       console.error('Login failed:', err);
       setError('Login failed. Please check your email and password.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const userCredential = await signInWithGoogle();
-      const token = await getIdToken();
-      onLoginSuccess?.(token ?? undefined);
-      onClose();
-    } catch (err) {
-      console.error('Google sign-in failed:', err);
-      setError('Google sign-in failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -136,9 +126,9 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
                     />
                     <span className="text-gray-600">Remember me</span>
                   </label>
-                  <a href="#" className="text-green-600 hover:text-green-700 font-medium">
+                  <button type="button" onClick={() => setIsResetOpen(true)} className="text-green-600 hover:text-green-700 font-medium">
                     Forgot password?
-                  </a>
+                  </button>
                 </div>
 
                 {error && <p className="text-sm text-red-600">{error}</p>}
@@ -150,19 +140,27 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
                 >
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </Button>
-
-                <div className="grid gap-3 pt-2">
+                <div className="-mt-2">
                   <Button
                     type="button"
-                    className="w-full border border-gray-300 bg-white text-gray-900 hover:bg-gray-50"
-                    onClick={handleGoogleSignIn}
+                    variant="outline"
+                    className="w-full text-green-600 border-green-600"
+                    onClick={() => { onClose(); setIsSignupOpen(true); }}
                     disabled={isLoading}
                   >
-                    <FcGoogle className="mr-2 inline-block h-4 w-4" />
-                    Continue with Google
+                    Create an account
                   </Button>
                 </div>
+
+                <div className="mt-2 text-center">
+                  <button type="button" onClick={() => { onClose(); setIsTermsOpen(true); }} className="text-sm text-gray-500 underline">Terms &amp; Conditions</button>
+                </div>
               </form>
+              <SignupModal isOpen={isSignupOpen} onClose={() => setIsSignupOpen(false)} onSignupSuccess={() => { setIsSignupOpen(false); onLoginSuccess?.(); }} />
+              <TermsModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
+              {/* Password reset modal */}
+              {/* lazy include */}
+              <PasswordResetModal isOpen={isResetOpen} onClose={() => setIsResetOpen(false)} />
             </motion.div>
           </div>
         </>
@@ -170,3 +168,4 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
     </AnimatePresence>
   );
 }
+
