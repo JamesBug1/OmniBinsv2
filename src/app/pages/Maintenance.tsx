@@ -24,15 +24,34 @@ const ScheduleMaintenanceModal = ({
   systemId,
   users,
   onSchedule,
+  initialDate,
+  initialTaskType,
+  initialDescription,
+  initialUserId,
 }: {
   isOpen: boolean;
   onClose: () => void;
   systemId: string;
   users: any[];
-  onSchedule: (date: string, userId: string) => void;
+  onSchedule: (date: string, userId: string, taskType: string, description?: string) => void;
+  initialDate?: string;
+  initialTaskType?: string;
+  initialDescription?: string;
+  initialUserId?: string;
 }) => {
   const [maintenanceDate, setMaintenanceDate] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
+  const [taskType, setTaskType] = useState('maintenance');
+  const [description, setDescription] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setMaintenanceDate(initialDate ?? '');
+      setTaskType(initialTaskType ?? 'maintenance');
+      setDescription(initialDescription ?? '');
+      setSelectedUserId(initialUserId ?? '');
+    }
+  }, [isOpen, initialDate, initialTaskType, initialDescription, initialUserId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,9 +59,14 @@ const ScheduleMaintenanceModal = ({
       alert('Please select a maintenance date and assign a user.');
       return;
     }
-    onSchedule(maintenanceDate, selectedUserId);
+    if (!taskType) {
+      alert('Please select a task type.');
+      return;
+    }
+    onSchedule(maintenanceDate, selectedUserId, taskType, description);
     setMaintenanceDate('');
     setSelectedUserId('');
+    setDescription('');
     onClose();
   };
 
@@ -78,6 +102,25 @@ const ScheduleMaintenanceModal = ({
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Task Type</label>
+                <select
+                  value={taskType}
+                  onChange={(e) => setTaskType(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="maintenance">Schedule Maintenance</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Description (optional)</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Add notes or instructions for the scheduled task"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 h-24 text-sm"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-900 mb-1">
                   Select Maintenance Date
@@ -198,11 +241,26 @@ const AddBinModal = ({
   const [binId, setBinId] = useState('');
   const [location, setLocation] = useState('');
   const [sensorDataName, setSensorDataName] = useState('');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!binId || !location || !sensorDataName) {
       alert('Please fill in all required fields');
+      return;
+    }
+
+    const parsedLat = latitude !== '' ? parseFloat(latitude) : NaN;
+    const parsedLng = longitude !== '' ? parseFloat(longitude) : NaN;
+
+    if (latitude !== '' && Number.isNaN(parsedLat)) {
+      alert('Latitude must be a valid number');
+      return;
+    }
+
+    if (longitude !== '' && Number.isNaN(parsedLng)) {
+      alert('Longitude must be a valid number');
       return;
     }
 
@@ -227,6 +285,8 @@ const AddBinModal = ({
       const newSystem = {
         id: normalizedNewId,
         location,
+        lat: Number.isFinite(parsedLat) ? parsedLat : undefined,
+        lng: Number.isFinite(parsedLng) ? parsedLng : undefined,
         sensors: hasMatchingSensor ? 'online' : 'offline',
         lastMaintenance: 'Just added',
         status: hasMatchingSensor ? 'good' : 'critical',
@@ -237,6 +297,8 @@ const AddBinModal = ({
       setBinId('');
       setLocation('');
       setSensorDataName('');
+      setLatitude('');
+      setLongitude('');
       onClose();
     } catch (error) {
       console.error('Failed to validate sensor data:', error);
@@ -291,6 +353,30 @@ const AddBinModal = ({
                   onChange={(e) => setLocation(e.target.value)}
                   className="text-gray-900 text-sm"
                   required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Latitude (optional)</label>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="e.g., 9.8826944"
+                  value={latitude}
+                  onChange={(e) => setLatitude(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Longitude (optional)</label>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="e.g., 123.5993333"
+                  value={longitude}
+                  onChange={(e) => setLongitude(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
                 />
               </div>
 
@@ -391,17 +477,12 @@ export function Maintenance() {
     return () => unsubscribe();
   }, []);
 
-  const openMaintenanceModal = (systemId: string) => {
-    setSelectedSystem(systemId);
-    setIsModalOpen(true);
-  };
-
   const closeMaintenanceModal = () => {
     setIsModalOpen(false);
   };
 
   // ✅ Save scheduled date and user assignment to Firebase
-  const handleScheduleMaintenance = async (date: string, userId: string) => {
+  const handleScheduleMaintenance = async (date: string, userId: string, taskType: string = 'maintenance', description: string = '') => {
     try {
       // Require an authenticated user to satisfy realtime DB rules
       if (!auth || !auth.currentUser) {
@@ -415,9 +496,13 @@ export function Maintenance() {
 
       const selectedUser = users.find((user) => user.id === userId);
 
-      console.log('Scheduling maintenance:', { selectedSystem, date, userId });
+      console.log('Scheduling task:', { selectedSystem, date, userId, taskType });
 
+      // Save scheduled date on the bin for visibility
       await set(ref(db, `bins/${selectedSystem}/scheduledDate`), date);
+      if (description) {
+        await set(ref(db, `bins/${selectedSystem}/lastMaintenanceNote`), description);
+      }
       console.log(`Wrote bins/${selectedSystem}/scheduledDate -> ${date}`);
 
       await set(
@@ -427,11 +512,11 @@ export function Maintenance() {
       console.log(`Wrote bins/${selectedSystem}/assignedTo -> ${selectedUser ? selectedUser.id : 'Unassigned'}`);
 
       if (selectedUser) {
-        // Create a new task using the pushed ref directly so the ref contains the generated key
+        // Create a maintenance task using the pushed ref directly so the ref contains the generated key
         const newTaskRef = push(ref(db, 'tasks'));
         const taskId = newTaskRef.key;
         console.log('Creating task ref', taskId);
-        await set(newTaskRef, {
+        const taskRecord = {
           id: taskId,
           type: 'maintenance',
           binId: selectedSystem,
@@ -439,9 +524,11 @@ export function Maintenance() {
           assignedUserName: selectedUser.name || 'User',
           assignedUserEmail: selectedUser.email || '',
           scheduledDate: date,
+          description: description || '',
           status: 'pending',
           createdAt: new Date().toISOString(),
-        });
+        };
+        await set(newTaskRef, taskRecord);
         console.log('Task created', taskId);
       }
 
@@ -586,7 +673,9 @@ export function Maintenance() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-3">
-                      <p className="font-bold text-lg text-gray-900">{system.id}</p>
+                      <p className="font-bold text-lg text-gray-900 flex items-center gap-3">
+                        {system.id}
+                      </p>
                       {getStatusBadge(system.status)}
                     </div>
                     <p className="text-sm text-gray-900 font-medium mb-4">{system.location}</p>
@@ -624,25 +713,6 @@ export function Maintenance() {
                   </div>
 
                   <div className="flex gap-2">
-                    {system.status !== 'good' && (
-                      <Button
-                        onClick={() => openMaintenanceModal(system.id)}
-                        size="sm"
-                        className="bg-green-600 hover:bg-green-700 text-white text-xs"
-                      >
-                        {system.scheduledDate ? (
-                          <>
-                            <Edit className="h-3 w-3 mr-1" />
-                            Edit
-                          </>
-                        ) : (
-                          <>
-                            <Wrench className="h-3 w-3 mr-1" />
-                            Schedule
-                          </>
-                        )}
-                      </Button>
-                    )}
                     <Button
                       onClick={() => handleRemoveSystem(system.id)}
                       size="sm"
@@ -659,13 +729,35 @@ export function Maintenance() {
         )}
       </div>
 
-      <ScheduleMaintenanceModal
-        isOpen={isModalOpen}
-        onClose={closeMaintenanceModal}
-        systemId={selectedSystem}
-        users={users}
-        onSchedule={handleScheduleMaintenance}
-      />
+      {
+        (() => {
+          const sel = systems.find(s => s.id === selectedSystem);
+          let initialUserId: string | undefined = undefined;
+          if (sel && typeof sel.assignedTo === 'string') {
+            const m = sel.assignedTo.match(/\(([^)]+)\)/);
+            const email = m ? m[1] : undefined;
+            if (email) {
+              const u = users.find(us => String(us.email).toLowerCase() === String(email).toLowerCase());
+              if (u) initialUserId = u.id;
+            }
+          }
+
+          return (
+            <ScheduleMaintenanceModal
+              isOpen={isModalOpen}
+              onClose={closeMaintenanceModal}
+              systemId={selectedSystem}
+              users={users}
+              onSchedule={handleScheduleMaintenance}
+              initialDate={systems.find(s => s.id === selectedSystem)?.scheduledDate}
+              initialTaskType="maintenance"
+              initialDescription={systems.find(s => s.id === selectedSystem)?.lastMaintenanceNote}
+              initialUserId={initialUserId}
+            />
+          );
+        })()
+      }
+      
       <ConfirmationModal
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}

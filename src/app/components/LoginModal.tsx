@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Mail, Lock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { signInWithEmail, getIdToken } from '../../firebase';
+import { signInWithEmail, getIdToken, isAdminUser } from '../../firebase';
+import { signOut } from 'firebase/auth';
+import { auth } from '../../firebase';
 import { useNavigate } from 'react-router-dom';
 import { SignupModal } from './SignupModal';
 import TermsModal from './TermsModal';
@@ -32,12 +34,31 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
 
     try {
       await signInWithEmail(email, password);
+
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('No authenticated user found');
+      }
+
+      if (!currentUser.emailVerified) {
+        await signOut(auth);
+        setError('Please verify your email before accessing the admin dashboard.');
+        return;
+      }
+
+      const isAdmin = await isAdminUser(currentUser.email);
+      if (!isAdmin) {
+        await signOut(auth);
+        setError('Only admin accounts can log in to OMNIBINS.');
+        return;
+      }
+
       const token = await getIdToken();
       onLoginSuccess?.(token ?? undefined);
       onClose();
     } catch (err) {
       console.error('Login failed:', err);
-      setError('Login failed. Please check your email and password.');
+      setError('Login failed. Admin access only. Please check your credentials and try again.');
     } finally {
       setIsLoading(false);
     }

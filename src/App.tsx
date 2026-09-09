@@ -1,8 +1,8 @@
 // src/App.tsx
 import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { RouterProvider } from 'react-router';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth, isAdminUser } from './firebase';
 
 import { createAppRouter } from './app/routes'; 
 
@@ -22,18 +22,39 @@ export default function App() {
 
   // Check Firebase Auth state on app load
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      // Only treat the user as "logged in" for app routing when their email is verified.
-      // Firebase automatically signs in newly created users, but we want to require
-      // email verification before giving access to the dashboard.
-      if (user && user.emailVerified) {
-        setIsLoggedIn(true);
-        localStorage.setItem('omniToken', 'authenticated');
-      } else {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      try {
+        if (!user) {
+          setIsLoggedIn(false);
+          localStorage.removeItem('omniToken');
+          setIsInitialized(true);
+          return;
+        }
+
+        if (!user.emailVerified) {
+          await signOut(auth);
+          setIsLoggedIn(false);
+          localStorage.removeItem('omniToken');
+          setIsInitialized(true);
+          return;
+        }
+
+        const isAdmin = await isAdminUser(user.email);
+        if (isAdmin) {
+          setIsLoggedIn(true);
+          localStorage.setItem('omniToken', 'authenticated');
+        } else {
+          await signOut(auth);
+          setIsLoggedIn(false);
+          localStorage.removeItem('omniToken');
+        }
+      } catch (error) {
+        console.error('Admin access check failed:', error);
         setIsLoggedIn(false);
         localStorage.removeItem('omniToken');
+      } finally {
+        setIsInitialized(true);
       }
-      setIsInitialized(true);
     });
 
     return () => unsubscribe();

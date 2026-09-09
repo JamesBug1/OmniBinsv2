@@ -18,7 +18,9 @@ import {
   Clock, Users, Shield, Zap, Phone, AlertCircle, 
   CheckCircle
 } from 'lucide-react';
-import { signInWithEmail, getIdToken } from '../../firebase';
+import { signInWithEmail, getIdToken, isAdminUser } from '../../firebase';
+import { signOut } from 'firebase/auth';
+import { auth } from '../../firebase';
 import SignupModal from '../components/SignupModal';
 import PasswordResetModal from '../components/PasswordResetModal';
 
@@ -50,12 +52,31 @@ function LoginModal({ isOpen, onClose, onLoginSuccess, onRequestSignup }: LoginM
 
     try {
       await signInWithEmail(email, password);
+
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('No authenticated user found');
+      }
+
+      if (!currentUser.emailVerified) {
+        await signOut(auth);
+        setError('Please verify your email before accessing the admin dashboard.');
+        return;
+      }
+
+      const isAdmin = await isAdminUser(currentUser.email);
+      if (!isAdmin) {
+        await signOut(auth);
+        setError('Only admin accounts can log in to OMNIBINS.');
+        return;
+      }
+
       const token = await getIdToken();
       onLoginSuccess?.(token ?? undefined);
       onClose();
     } catch (err) {
       console.error('Login failed:', err);
-      setError('Login failed. Please check your credentials and try again.');
+      setError('Login failed. Admin access only. Please check your credentials and try again.');
     } finally {
       setIsLoading(false);
     }

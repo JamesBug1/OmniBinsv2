@@ -64,5 +64,10 @@ export default defineConfig({
     headers: {
       'Cache-Control': 'public, max-age=3600',
     },
+    // Ignore large virtualenv and other heavy folders to avoid hitting
+    // the OS file watcher limit (ENOSPC).
+    watch: {
+      ignored: ['**/backend/.venv/**', '**/.venv/**', '**/node_modules/**', '**/.git/**'],
+    },
   },
 })

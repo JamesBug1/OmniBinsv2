@@ -6,7 +6,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { User, Phone, Mail, CheckCircle, Clock, Search, X, Users, Plus, Trash2 } from 'lucide-react';
-import { getUsers, createTeam, getTeams } from '../../firebase';
+import { getUsers, createTeam, getTeams, removeTeam } from '../../firebase';
+import { ref, push, set } from 'firebase/database';
+import { db } from '../../firebase';
 
 interface WorkerData {
   id: string;
@@ -14,6 +16,7 @@ interface WorkerData {
   email: string;
   phone?: string;
   team?: string;
+  role?: string;
   status?: string;
   tasksCompleted?: number;
   tasksToday?: number;
@@ -26,6 +29,153 @@ interface CreateTeamModalProps {
   onClose: () => void;
   workers: WorkerData[];
   onCreateTeam: (teamName: string, selectedWorkerIds: string[]) => void;
+}
+
+interface TeamScheduleModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  team: { id?: string; name: string } | null;
+  bins: any[];
+  onSchedule: (payload: {
+    teamName: string;
+    binId: string;
+    date: string;
+    taskType: 'maintenance' | 'collection';
+    description?: string;
+  }) => Promise<void>;
+}
+
+function TeamScheduleModal({ isOpen, onClose, team, bins, onSchedule }: TeamScheduleModalProps) {
+  const [selectedBinId, setSelectedBinId] = useState('');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [taskType, setTaskType] = useState<'maintenance' | 'collection'>('collection');
+  const [description, setDescription] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedBinId(bins[0]?.id ?? '');
+      setScheduledDate('');
+      setTaskType('collection');
+      setDescription('');
+    }
+  }, [isOpen, bins]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!team) return;
+    if (!selectedBinId) {
+      alert('Please select a bin.');
+      return;
+    }
+    if (!scheduledDate) {
+      alert('Please select a date.');
+      return;
+    }
+
+    await onSchedule({
+      teamName: team.name,
+      binId: selectedBinId,
+      date: scheduledDate,
+      taskType,
+      description,
+    });
+
+    onClose();
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && team && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-gradient-to-r from-green-600 to-green-700 px-8 py-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Schedule Team Task</h2>
+                    <p className="text-green-100">{team.name}</p>
+                  </div>
+                  <button onClick={onClose} className="rounded-full p-2 bg-white/20 text-white hover:bg-white/30 transition-colors">
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+              </div>
+
+              <form onSubmit={handleSubmit} className="p-8 space-y-5">
+                <div className="space-y-2">
+                  <Label className="text-gray-700">Task Type</Label>
+                  <select
+                    value={taskType}
+                    onChange={(e) => setTaskType(e.target.value as 'maintenance' | 'collection')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm text-gray-900"
+                  >
+                    <option value="collection">Schedule Trash Collection</option>
+                    <option value="maintenance">Schedule Maintenance</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-gray-700">Select Bin</Label>
+                  <select
+                    value={selectedBinId}
+                    onChange={(e) => setSelectedBinId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm text-gray-900"
+                  >
+                    {bins.map((bin) => (
+                      <option key={bin.id} value={bin.id}>{bin.id}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-gray-700">Schedule Date</Label>
+                  <Input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    className="border-gray-300 text-gray-900"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-gray-700">Description (optional)</Label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Add notes or instructions for this task"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 h-24 text-sm text-gray-900"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2 border-t">
+                  <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700 text-white">
+                    Save Task
+                  </Button>
+                  <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        </>
+      )}
+    </AnimatePresence>
+  );
 }
 
 function CreateTeamModal({ isOpen, onClose, workers, onCreateTeam }: CreateTeamModalProps) {
@@ -55,7 +205,10 @@ function CreateTeamModal({ isOpen, onClose, workers, onCreateTeam }: CreateTeamM
     onClose();
   };
 
-  const availableWorkers = workers.filter(w => w.status === 'active');
+  const availableWorkers = workers.filter((w) => {
+    const role = String(w.role || '').toLowerCase();
+    return w.status === 'active' && role !== 'admin' && role !== 'administrator';
+  });
 
   return (
     <AnimatePresence>
@@ -177,6 +330,8 @@ export function Workers() {
   const [teamList, setTeamList] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateTeamModalOpen, setIsCreateTeamModalOpen] = useState(false);
+  const [selectedTeamForSchedule, setSelectedTeamForSchedule] = useState<any | null>(null);
+  const [bins, setBins] = useState<any[]>([]);
 
   const filteredWorkers = workerList.filter(worker =>
     worker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -201,6 +356,7 @@ export function Workers() {
               email: String(user.email || ''),
               phone: String(user.phone || ''),
               team: String(user.team || user.department || ''),
+              role: String(user.role || 'staff'),
               status: String(user.status || 'active'),
               tasksCompleted: Number(user.tasksCompleted ?? 0),
               tasksToday: Number(user.tasksToday ?? 0),
@@ -216,16 +372,38 @@ export function Workers() {
   // Load tasks and aggregate counts per user
   const loadTasks = async () => {
     try {
-      const tasksSnapshot = await (await import('firebase/database')).get(ref(db, 'tasks'));
+      const [tasksSnapshot, teams] = await Promise.all([
+        (await import('firebase/database')).get(ref(db, 'tasks')),
+        getTeams(),
+      ]);
       const tasks = tasksSnapshot.val() || {};
+      const teamMembersByTeam = new Map<string, string[]>();
+      (Array.isArray(teams) ? teams : []).forEach((team: any) => {
+        const workerIds = Array.isArray(team?.workerIds) ? team.workerIds.map(String) : [];
+        teamMembersByTeam.set(String(team?.name || ''), workerIds);
+      });
+
       const counts: Record<string, { completed: number; today: number }> = {};
+      const todayPrefix = new Date().toISOString().slice(0, 10);
+
       Object.entries(tasks).forEach(([id, task]: [string, any]) => {
-        const assignedId = task.assignedUserId || '';
-        if (!counts[assignedId]) counts[assignedId] = { completed: 0, today: 0 };
-        if (task.status === 'completed') counts[assignedId].completed += 1;
-        // naive 'today' count: compare scheduledDate to today's ISO date prefix
-        const todayPrefix = new Date().toISOString().slice(0, 10);
-        if (String(task.scheduledDate || '').startsWith(todayPrefix)) counts[assignedId].today += 1;
+        const memberIds = new Set<string>();
+        const assignedUserId = task.assignedUserId ? String(task.assignedUserId) : '';
+        if (assignedUserId) memberIds.add(assignedUserId);
+
+        const assignedTeam = task.assignedTeam || task.assignedTo || '';
+        if (assignedTeam) {
+          const teamWorkerIds = teamMembersByTeam.get(String(assignedTeam)) || [];
+          teamWorkerIds.forEach((workerId) => memberIds.add(workerId));
+        }
+
+        if (memberIds.size === 0) return;
+
+        memberIds.forEach((memberId) => {
+          if (!counts[memberId]) counts[memberId] = { completed: 0, today: 0 };
+          if (task.status === 'completed') counts[memberId].completed += 1;
+          if (String(task.scheduledDate || '').startsWith(todayPrefix)) counts[memberId].today += 1;
+        });
       });
 
       setWorkerList(prev => prev.map(w => ({
@@ -264,10 +442,102 @@ export function Workers() {
     }
   };
 
+  const handleRemoveTeam = async (team: any) => {
+    if (!team?.id) return;
+    const confirmed = window.confirm(`Remove team "${team.name}" and clear its members' team assignment?`);
+    if (!confirmed) return;
+
+    try {
+      await removeTeam(team.id);
+      const workerUpdates: Record<string, any> = {};
+      (team.workerIds ?? []).forEach((workerId: string) => {
+        workerUpdates[`users/${workerId}/team`] = '';
+      });
+      if (Object.keys(workerUpdates).length > 0) {
+        await (await import('firebase/database')).update(ref(db), workerUpdates);
+      }
+      await loadTeams();
+      await loadWorkers();
+      setSelectedTeamForSchedule(null);
+      alert(`Team "${team.name}" removed successfully.`);
+    } catch (error) {
+      console.error('Failed to remove team:', error);
+      alert('Failed to remove team. Please try again.');
+    }
+  };
+
+  const handleScheduleTeamTask = async ({
+    teamName,
+    binId,
+    date,
+    taskType,
+    description,
+  }: {
+    teamName: string;
+    binId: string;
+    date: string;
+    taskType: 'maintenance' | 'collection';
+    description?: string;
+  }) => {
+    try {
+      const newTaskRef = push(ref(db, 'tasks'));
+      const taskId = newTaskRef.key;
+      const taskRecord = {
+        id: taskId,
+        type: taskType,
+        binId,
+        bin: binId,
+        node: binId,
+        assignedTo: teamName,
+        assignedTeam: teamName,
+        scheduledDate: date,
+        description: description || '',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      };
+
+      await set(newTaskRef, taskRecord);
+
+      if (taskType === 'collection') {
+        await set(ref(db, `collections/${taskId}`), {
+          ...taskRecord,
+          status: 'pending',
+          assignedTo: teamName,
+          scheduledTime: date,
+          createdAt: taskRecord.createdAt,
+        });
+        await set(ref(db, `bins/${binId}/collectionScheduledDate`), date);
+      } else {
+        await set(ref(db, `bins/${binId}/scheduledDate`), date);
+      }
+
+      await set(ref(db, `bins/${binId}/assignedTo`), teamName);
+      alert(`Task scheduled for team "${teamName}" on bin ${binId}.`);
+    } catch (error) {
+      console.error('Failed to schedule team task:', error);
+      alert('Unable to save this schedule. Please try again.');
+    }
+  };
+
   useEffect(() => {
     loadWorkers();
     loadTeams();
     loadTasks();
+  }, []);
+
+  useEffect(() => {
+    const fetchBins = async () => {
+      try {
+        const binsSnapshot = await (await import('firebase/database')).get(ref(db, 'bins'));
+        const data = binsSnapshot.val() || {};
+        setBins(data ? Object.entries(data).map(([key, value]) => ({ id: key, ...(value || {}) })) : []);
+      } catch (error) {
+        console.error('Failed to load bins for scheduling:', error);
+        setBins([]);
+      }
+    };
+
+    fetchBins();
   }, []);
 
   return (
@@ -368,7 +638,7 @@ export function Workers() {
                   <span>{worker.email}</span>
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t">
-                  <span className="text-gray-600">Tasks Today</span>
+                  <span className="text-gray-600">Task</span>
                   <span className="font-bold">{worker.tasksCompleted} / {worker.tasksToday}</span>
                 </div>
               </div>
@@ -388,11 +658,11 @@ export function Workers() {
           <h3 className="text-lg font-bold text-gray-900">Saved Teams</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {teamList.map((team) => (
-              <Card key={team.id}>
+              <Card key={team.id} className="transition hover:shadow-md">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <p className="font-bold text-gray-900">{team.name}</p>
+                      <p className="font-bold text-gray-900 uppercase">{team.name}</p>
                       <p className="text-sm text-gray-500">{team.workerIds?.length ?? 0} member(s)</p>
                     </div>
                     <Badge className="bg-blue-500 text-white">Team</Badge>
@@ -405,12 +675,43 @@ export function Workers() {
                       );
                     })}
                   </div>
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTeamForSchedule(team);
+                      }}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      Schedule
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveTeam(team);
+                      }}
+                      className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                    >
+                      Remove
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
         </div>
       )}
+
+      <TeamScheduleModal
+        isOpen={!!selectedTeamForSchedule}
+        onClose={() => setSelectedTeamForSchedule(null)}
+        team={selectedTeamForSchedule}
+        bins={bins}
+        onSchedule={handleScheduleTeamTask}
+      />
     </div>
   );
 }

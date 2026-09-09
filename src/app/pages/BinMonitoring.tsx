@@ -194,6 +194,8 @@ export function BinMonitoring() {
   const [taskList, setTaskList]                = useState<any[]>([]);
   const [teamList, setTeamList]                = useState<string[]>([]);
   const [assigningTask, setAssigningTask]      = useState<string | null>(null);
+  const [selectedTeamForAssignment, setSelectedTeamForAssignment] = useState<string>('');
+  const [selectedBinForAssignment, setSelectedBinForAssignment] = useState<string>('');
   const [loading, setLoading]                  = useState(true);
   const [lastUpdated, setLastUpdated]          = useState<Date | null>(null);
   const [isNew, setIsNew]                      = useState(false);
@@ -241,6 +243,55 @@ export function BinMonitoring() {
       console.error('Failed to persist assigned team:', err);
     } finally {
       setAssigningTask(null);
+    }
+  };
+
+  const assignTeamToBin = async () => {
+    if (!selectedTeamForAssignment) {
+      alert('Please select a team first.');
+      return;
+    }
+
+    const binId = selectedBinForAssignment || latestBin?.node || registeredBins[0]?.id;
+    if (!binId) {
+      alert('Please choose a bin first.');
+      return;
+    }
+
+    try {
+      const collectionKey = `${binId}-${Date.now()}`;
+      const taskRow = {
+        id: collectionKey,
+        type: 'collection',
+        binId,
+        bin: binId,
+        node: binId,
+        assignedTo: selectedTeamForAssignment,
+        scheduleType: 'team-assignment',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        scheduledTime: new Date().toISOString(),
+      };
+
+      await update(ref(db), {
+        [`tasks/${collectionKey}`]: taskRow,
+        [`collections/${collectionKey}`]: {
+          ...taskRow,
+          taskId: collectionKey,
+          assignedTo: selectedTeamForAssignment,
+          status: 'pending',
+          bin_id: binId,
+          bin: binId,
+          node: binId,
+        },
+      });
+
+      setSelectedTeamForAssignment('');
+      setSelectedBinForAssignment('');
+      alert(`Team "${selectedTeamForAssignment}" assigned to bin ${binId} for collection.`);
+    } catch (error) {
+      console.error('Failed to assign team to bin collection:', error);
+      alert('Unable to assign the team to this collection. Please try again.');
     }
   };
 
@@ -347,11 +398,45 @@ export function BinMonitoring() {
         const taskNode = task.bin ?? task.bin_id ?? task.node;
         if (taskNode !== latestBin.node) return task;
         if (latestBin.weight < 20 && latestBin.status === 'Normal' && task.status !== 'completed') {
-          return {
+          const finishedAtIso = new Date().toISOString();
+          const completedAtDisplay = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+          const startedAtMs = task.createdAt ? Date.parse(task.createdAt) : Date.now();
+          const responseMinutesValue = Number.isFinite(startedAtMs)
+            ? Math.max(0, Math.round((Date.now() - startedAtMs) / 60000))
+            : 0;
+
+          const completedTask = {
             ...task,
             status: 'completed',
-            completedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            completedAt: completedAtDisplay,
+            finishedAt: finishedAtIso,
+            responseMinutes: responseMinutesValue,
+            response_time: responseMinutesValue,
+            responseTime: responseMinutesValue,
+            minutes: responseMinutesValue,
           };
+
+          const taskId = task.id ?? task.taskId ?? task.task_id;
+          if (taskId) {
+            update(ref(db, `tasks/${taskId}`), {
+              ...completedTask,
+              status: 'completed',
+              completedAt: completedAtDisplay,
+              finishedAt: finishedAtIso,
+            }).catch((err) => console.error('Failed to update task completion record:', err));
+
+            update(ref(db, `collections/${taskId}`), {
+              ...completedTask,
+              bin: task.bin ?? task.bin_id ?? task.node ?? latestBin.node,
+              bin_id: task.bin_id ?? task.bin ?? task.node ?? latestBin.node,
+              node: task.node ?? latestBin.node,
+              completedAt: completedAtDisplay,
+              status: 'completed',
+              finishedAt: finishedAtIso,
+            }).catch((err) => console.error('Failed to update collection analytics record:', err));
+          }
+
+          return completedTask;
         }
         return task;
       })
@@ -362,12 +447,20 @@ export function BinMonitoring() {
 
   const totalBins = registeredBins.length;
 
-  const liveSensorBins = allLatestPerNode;
+  const liveSensorBins = allLatestPerNode.filter((sensor) =>
+    registeredBins.some((bin) => normalizeBinId(bin.id) === normalizeBinId(sensor.node))
+  );
   const fullBins   = liveSensorBins.filter((s) => s.weight >= FULL_KG).length;
   const nearFull   = liveSensorBins.filter((s) => s.weight >= NEAR_FULL_KG && s.weight < FULL_KG).length;
   const normalBins = liveSensorBins.filter((s) => s.weight < NEAR_FULL_KG).length;
 
   const currentTask = latestBin ? getTaskForBin(latestBin.node) : null;
+
+  useEffect(() => {
+    if (!selectedBinForAssignment && registeredBins.length > 0) {
+      setSelectedBinForAssignment(registeredBins[0].id);
+    }
+  }, [registeredBins, selectedBinForAssignment]);
 
   const resolvedBin =
     registeredBins.find((bin) => bin.id === latestBin?.node || bin.id === 'Bin-10') ??
@@ -553,48 +646,13 @@ export function BinMonitoring() {
 
                   <div className="flex items-center justify-between pt-3 border-t">
                     <span className="text-sm text-gray-500 font-medium">Collection Status</span>
-                    {currentTask ? getCollectionStatusBadge(currentTask.status) : <Badge className="bg-gray-400 text-white">No Task</Badge>}
-                  </div>
-
-                  {currentTask && currentTask.status === 'pending' && (
-                    <div className="pt-3 border-t space-y-3">
-                      <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
-                        <Users className="h-4 w-4" />
-                        Assign Collection Team
-                      </div>
-                      {teamList.length === 0 ? (
-                        <p className="text-xs text-gray-400 italic">No teams found. Add teams in the Maintenance page.</p>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {teamList.map((team) => {
-                            const isAssigned = currentTask.assignedTo === team;
-                            const isLoading  = assigningTask === currentTask.id + team;
-                            return (
-                              <Button
-                                key={team}
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => assignTeam(currentTask.id, team)}
-                                className={isAssigned ? 'bg-green-700 text-white border-2 border-green-900 font-bold' : 'bg-green-600 hover:bg-green-700 text-white'}
-                              >
-                                {isLoading ? (
-                                  <span className="flex items-center gap-1">
-                                    <span className="animate-spin h-3 w-3 border border-white border-t-transparent rounded-full" />
-                                    Assigning...
-                                  </span>
-                                ) : <>{isAssigned && '✓ '}{team}</>}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {currentTask.assignedTo && (
-                        <p className="text-xs text-gray-500">
-                          Currently assigned to: <span className="font-semibold text-green-700">{currentTask.assignedTo}</span>
-                        </p>
+                    <div className="flex flex-col items-end gap-1">
+                      {currentTask ? getCollectionStatusBadge(currentTask.status) : <Badge className="bg-gray-400 text-white">No Task</Badge>}
+                      {currentTask?.assignedTo && (
+                        <span className="text-[10px] text-gray-500">Assigned to {currentTask.assignedTo}</span>
                       )}
                     </div>
-                  )}
+                  </div>
 
                   {currentTask && currentTask.status === 'in-progress' && (
                     <div className="pt-3 border-t flex items-center gap-2 text-sm text-gray-600">
@@ -622,57 +680,65 @@ export function BinMonitoring() {
           </div>
 
           {offlineRegisteredBins.length > 0 && (
-            <div className="w-full xl:w-[35%] flex flex-col gap-4">
-              {offlineRegisteredBins.map((bin) => (
-                <Card key={bin.id} className="overflow-hidden border border-gray-200 bg-white shadow-sm">
-                  <div className="h-1.5 w-full bg-gray-400" />
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between">
+            <div className="w-full xl:w-[45%] flex flex-col gap-4">
+              {offlineRegisteredBins.map((bin) => {
+                const offlineTask = getTaskForBin(bin.id);
+                return (
+                  <Card key={bin.id} className="overflow-hidden border border-gray-200 bg-white shadow-sm h-full min-h-[250px]">
+                    <div className="h-1.5 w-full bg-gray-400" />
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <CardTitle className="text-lg text-gray-900">{bin.id}</CardTitle>
+                          <div className="flex items-center gap-1 text-sm text-gray-500 mt-0.5">
+                            <MapPin className="h-3.5 w-3.5" />
+                            {bin.location || 'Unknown location'}
+                          </div>
+                        </div>
+                        <Badge className="bg-gray-500 text-white">Offline</Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Weight className="h-4 w-4 text-gray-400" />
+                          <span className="text-sm font-medium text-gray-600">Weight</span>
+                        </div>
+                        <span className="text-sm font-bold text-gray-700">No data</span>
+                      </div>
+
                       <div>
-                        <CardTitle className="text-lg text-gray-900">{bin.id}</CardTitle>
-                        <div className="flex items-center gap-1 text-sm text-gray-500 mt-0.5">
-                          <MapPin className="h-3.5 w-3.5" />
-                          {bin.location || 'Unknown location'}
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="font-medium text-gray-600">Capacity</span>
+                          <span className="font-bold text-gray-700">0%</span>
+                        </div>
+                        <Progress value={0} className="h-2 bg-gray-200" />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-200 text-sm">
+                        <div>
+                          <p className="text-xs text-gray-400 mb-1">Sensor Feed</p>
+                          <p className="font-semibold text-red-500">Offline</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-400 mb-1">Last Update</p>
+                          <p className="font-semibold text-gray-700">—</p>
                         </div>
                       </div>
-                      <Badge className="bg-gray-500 text-white">Offline</Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Weight className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-600">Weight</span>
-                      </div>
-                      <span className="text-sm font-bold text-gray-700">No data</span>
-                    </div>
 
-                    <div>
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="font-medium text-gray-600">Capacity</span>
-                        <span className="font-bold text-gray-700">0%</span>
+                      <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                        <span className="text-sm text-gray-500 font-medium">Collection Status</span>
+                        <div className="flex flex-col items-end gap-1">
+                          {offlineTask ? getCollectionStatusBadge(offlineTask.status) : <Badge className="bg-gray-400 text-white">No Task</Badge>}
+                          {offlineTask?.assignedTo && (
+                            <span className="text-[10px] text-gray-500">Assigned to {offlineTask.assignedTo}</span>
+                          )}
+                        </div>
                       </div>
-                      <Progress value={0} className="h-2 bg-gray-200" />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-200 text-sm">
-                      <div>
-                        <p className="text-xs text-gray-400 mb-1">Sensor Feed</p>
-                        <p className="font-semibold text-red-500">Offline</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400 mb-1">Last Update</p>
-                        <p className="font-semibold text-gray-700">—</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                      <span className="text-sm text-gray-500 font-medium">Collection Status</span>
-                      <Badge className="bg-gray-400 text-white">No Task</Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>

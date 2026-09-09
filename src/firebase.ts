@@ -78,6 +78,78 @@ export function subscribeCollections(callback: (collections: any[]) => void) {
   });
 }
 
+export function subscribeSensorData(callback: (sensors: any[]) => void) {
+  const sensorsRef = ref(db, 'sensor_data');
+  return onValue(sensorsRef, (snapshot) => {
+    const data = snapshot.val();
+    const sensors = data
+      ? Object.entries(data).map(([key, value]) => ({ id: key, ...(typeof value === 'object' && value !== null ? value : {}) }))
+      : [];
+    callback(sensors);
+  });
+}
+
+export function subscribeAlerts(callback: (alerts: any[]) => void, onError?: (err: any) => void) {
+  const alertsRef = ref(db, 'alerts');
+  return onValue(
+    alertsRef,
+    (snapshot) => {
+      const data = snapshot.val();
+      const items = data
+        ? Object.entries(data).map(([key, value]) => ({ id: key, ...(typeof value === 'object' && value !== null ? value : {}) }))
+        : [];
+      callback(items);
+    },
+    (err) => {
+      if (onError) onError(err);
+      else console.error('subscribeAlerts error:', err);
+    }
+  );
+}
+
+export function subscribeReports(callback: (reports: any[]) => void, onError?: (err: any) => void) {
+  const reportsRef = ref(db, 'reports');
+  return onValue(
+    reportsRef,
+    (snapshot) => {
+      const data = snapshot.val();
+      const items = data
+        ? Object.entries(data).map(([key, value]) => ({ id: key, ...(typeof value === 'object' && value !== null ? value : {}) }))
+        : [];
+      callback(items);
+    },
+    (err) => {
+      if (onError) onError(err);
+      else console.error('subscribeReports error:', err);
+    }
+  );
+}
+
+export async function addAlert(alertData: {
+  bin?: string;
+  message?: string;
+  severity?: string;
+  type?: string;
+  time?: string | number;
+}): Promise<any> {
+  const alertsRef = ref(db, 'alerts');
+  const newRef = push(alertsRef);
+  const payload = {
+    bin: alertData.bin ?? 'Test-Bin',
+    message: alertData.message ?? 'Test alert generated from UI',
+    severity: alertData.severity ?? 'info',
+    type: alertData.type ?? 'test',
+    time: alertData.time ?? new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  };
+  await set(newRef, payload);
+  return { id: newRef.key, ...payload };
+}
+
+export function getDatabaseUrl(): string | undefined {
+  return firebaseConfig.databaseURL;
+}
+
 export async function signInWithEmail(
   email: string,
   password: string
@@ -193,6 +265,18 @@ export async function getUsers(): Promise<any> {
   }));
 }
 
+export async function getUserByEmail(email?: string | null): Promise<any | null> {
+  if (!email) return null;
+  const users = await getUsers();
+  return users.find((user: any) => String(user.email || '').toLowerCase() === email.toLowerCase()) ?? null;
+}
+
+export async function isAdminUser(email?: string | null): Promise<boolean> {
+  const user = await getUserByEmail(email);
+  if (!user) return false;
+  return String(user.role || '').trim().toLowerCase() === 'admin';
+}
+
 // ============================================================================
 // BIN MANAGEMENT API
 // ============================================================================
@@ -251,4 +335,9 @@ export async function getTeams(): Promise<any> {
     id: key,
     ...(typeof value === 'object' && value !== null ? value : {}),
   }));
+}
+
+export async function removeTeam(teamId: string): Promise<void> {
+  if (!teamId) return;
+  await remove(ref(db, `teams/${teamId}`));
 }
