@@ -174,6 +174,14 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
             <a href="#dashboard" className="text-gray-700 hover:text-green-600 transition-colors">Dashboard</a>
             <a href="#how-it-works" className="text-gray-700 hover:text-green-600 transition-colors">How It Works</a>
             <a href="#benefits" className="text-gray-700 hover:text-green-600 transition-colors">Benefits</a>
+            <a
+              href="https://drive.google.com/file/d/1_4valGEO9Llz4RQfK9uKaihqWOCUfwNM/view?usp=drivesdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-700 hover:text-green-600 transition-colors"
+            >
+              Download
+            </a>
               <Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onContactClick}>Contact Us</Button>
               <Button className="bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onLoginClick}>Login</Button>
           </div>
@@ -192,6 +200,15 @@ function NavBar({ onLoginClick, onContactClick }: { onLoginClick: () => void; on
                 {item.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
               </a>
             ))}
+            <a
+              href="https://drive.google.com/file/d/1_4valGEO9Llz4RQfK9uKaihqWOCUfwNM/view?usp=drivesdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-gray-700 hover:text-green-600 transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              Download
+            </a>
             <Button className="w-full bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onContactClick}>Contact Us</Button>
             <Button className="w-full bg-green-600 hover:bg-green-700 text-white cursor-pointer" onClick={onLoginClick}>Login</Button>
           </div>

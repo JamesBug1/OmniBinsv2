@@ -48,6 +48,14 @@ export function Navbar({ onLoginSuccess }: NavbarProps) {
               <a href="#benefits" className="text-gray-700 hover:text-green-600 transition-colors">
                 Benefits
               </a>
+              <a
+                href="https://drive.google.com/file/d/1_4valGEO9Llz4RQfK9uKaihqWOCUfwNM/view?usp=drivesdk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gray-700 hover:text-green-600 transition-colors"
+              >
+                Download
+              </a>
               <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={() => window.location.href = '#contact'}>
                 Contact Us
               </Button>
@@ -97,6 +105,15 @@ export function Navbar({ onLoginSuccess }: NavbarProps) {
                 onClick={() => setIsOpen(false)}
               >
                 Benefits
+              </a>
+              <a
+                href="https://drive.google.com/file/d/1_4valGEO9Llz4RQfK9uKaihqWOCUfwNM/view?usp=drivesdk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-gray-700 hover:text-green-600 transition-colors"
+                onClick={() => setIsOpen(false)}
+              >
+                Download
               </a>
               <Button className="w-full bg-green-600 hover:bg-green-700 text-white" onClick={() => window.location.href = '#contact'}>
                 Contact Us

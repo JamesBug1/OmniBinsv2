@@ -337,6 +337,34 @@ export async function getTeams(): Promise<any> {
   }));
 }
 
+export async function addUsersToTeam(teamId: string, workerIds: string[]): Promise<void> {
+  if (!teamId || !workerIds.length) return;
+
+  const teamRef = ref(db, `teams/${teamId}`);
+  const teamSnapshot = await get(teamRef);
+  const team = teamSnapshot.val() ?? {};
+  const existingWorkerIds = Array.isArray(team.workerIds)
+    ? team.workerIds.map((id: any) => String(id))
+    : [];
+  const uniqueWorkerIds = workerIds
+    .map((id) => String(id))
+    .filter((id) => id && !existingWorkerIds.includes(id));
+
+  if (!uniqueWorkerIds.length) return;
+
+  const updatedWorkerIds = [...existingWorkerIds, ...uniqueWorkerIds];
+  await update(teamRef, { workerIds: updatedWorkerIds });
+
+  const updates: Record<string, any> = {};
+  uniqueWorkerIds.forEach((workerId) => {
+    updates[`users/${workerId}/team`] = team.name ?? '';
+  });
+
+  if (Object.keys(updates).length > 0) {
+    await update(ref(db), updates);
+  }
+}
+
 export async function removeTeam(teamId: string): Promise<void> {
   if (!teamId) return;
   await remove(ref(db, `teams/${teamId}`));

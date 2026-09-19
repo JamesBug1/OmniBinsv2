@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { User, Phone, Mail, CheckCircle, Clock, Search, X, Users, Plus, Trash2 } from 'lucide-react';
-import { getUsers, createTeam, getTeams, removeTeam } from '../../firebase';
+import { getUsers, createTeam, getTeams, removeTeam, addUsersToTeam } from '../../firebase';
 import { ref, push, set } from 'firebase/database';
 import { db } from '../../firebase';
 
@@ -29,6 +29,14 @@ interface CreateTeamModalProps {
   onClose: () => void;
   workers: WorkerData[];
   onCreateTeam: (teamName: string, selectedWorkerIds: string[]) => void;
+}
+
+interface AddUsersToTeamModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  team: { id?: string; name: string; workerIds?: string[] } | null;
+  workers: WorkerData[];
+  onAddUsers: (teamId: string, selectedWorkerIds: string[]) => void;
 }
 
 interface TeamScheduleModalProps {
@@ -170,6 +178,145 @@ function TeamScheduleModal({ isOpen, onClose, team, bins, onSchedule }: TeamSche
                   </Button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function AddUsersToTeamModal({ isOpen, onClose, team, workers, onAddUsers }: AddUsersToTeamModalProps) {
+  const [selectedWorkers, setSelectedWorkers] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedWorkers([]);
+    }
+  }, [isOpen]);
+
+  const toggleWorker = (workerId: string) => {
+    setSelectedWorkers(prev =>
+      prev.includes(workerId)
+        ? prev.filter(id => id !== workerId)
+        : [...prev, workerId]
+    );
+  };
+
+  const availableWorkers = workers.filter((worker) => {
+    const role = String(worker.role || '').toLowerCase();
+    const alreadyInTeam = (team?.workerIds ?? []).includes(worker.id);
+    return worker.status === 'active' && role !== 'admin' && role !== 'administrator' && !alreadyInTeam;
+  });
+
+  const handleAddUsers = () => {
+    if (!team?.id) {
+      alert('Please select a valid team.');
+      return;
+    }
+    if (selectedWorkers.length === 0) {
+      alert('Please select at least one worker to add.');
+      return;
+    }
+
+    onAddUsers(team.id, selectedWorkers);
+    setSelectedWorkers([]);
+    onClose();
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && team && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-gradient-to-r from-green-600 to-green-700 px-8 py-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Add Worker to Team</h2>
+                    <p className="text-green-100">{team.name}</p>
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="rounded-full p-2 bg-white/20 text-white hover:bg-white/30 transition-colors"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-8">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-gray-700">
+                      <User className="h-4 w-4" />
+                      Select Workers to Add ({selectedWorkers.length} selected)
+                    </Label>
+                    <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
+                      {availableWorkers.length === 0 ? (
+                        <div className="p-4 text-sm text-gray-500">No available workers left to add to this team.</div>
+                      ) : (
+                        availableWorkers.map((worker) => (
+                          <label
+                            key={worker.id}
+                            className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedWorkers.includes(worker.id)}
+                              onChange={() => toggleWorker(worker.id)}
+                              className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-600"
+                            />
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-600 flex-shrink-0">
+                              <span className="text-white font-bold text-sm">
+                                {worker.name.split(' ').map(n => n[0]).join('')}
+                              </span>
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-medium text-gray-900">{worker.name}</p>
+                              <p className="text-sm text-gray-500">{worker.email}</p>
+                            </div>
+                            <Badge className={worker.status === 'active' ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'}>
+                              {worker.status}
+                            </Badge>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-4 border-t">
+                    <Button
+                      onClick={handleAddUsers}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer disabled:opacity-50"
+                      disabled={selectedWorkers.length === 0}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Selected
+                    </Button>
+                    <Button
+                      onClick={onClose}
+                      variant="outline"
+                      className="flex-1 cursor-pointer"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </motion.div>
           </div>
         </>
@@ -331,6 +478,7 @@ export function Workers() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateTeamModalOpen, setIsCreateTeamModalOpen] = useState(false);
   const [selectedTeamForSchedule, setSelectedTeamForSchedule] = useState<any | null>(null);
+  const [selectedTeamForAddMembers, setSelectedTeamForAddMembers] = useState<any | null>(null);
   const [bins, setBins] = useState<any[]>([]);
 
   const filteredWorkers = workerList.filter(worker =>
@@ -463,6 +611,26 @@ export function Workers() {
     } catch (error) {
       console.error('Failed to remove team:', error);
       alert('Failed to remove team. Please try again.');
+    }
+  };
+
+  const handleAddUsersToTeam = async (teamId: string, selectedWorkerIds: string[]) => {
+    if (!teamId || selectedWorkerIds.length === 0) return;
+
+    const team = teamList.find(item => item.id === teamId);
+    if (!team) {
+      alert('Selected team could not be found.');
+      return;
+    }
+
+    try {
+      await addUsersToTeam(teamId, selectedWorkerIds);
+      await loadTeams();
+      await loadWorkers();
+      alert(`Added ${selectedWorkerIds.length} worker(s) to team "${team.name}".`);
+    } catch (error) {
+      console.error('Failed to add workers to team:', error);
+      alert('Failed to add worker(s) to this team. Please try again.');
     }
   };
 
@@ -653,6 +821,13 @@ export function Workers() {
         workers={workerList}
         onCreateTeam={handleCreateTeam}
       />
+      <AddUsersToTeamModal
+        isOpen={!!selectedTeamForAddMembers}
+        onClose={() => setSelectedTeamForAddMembers(null)}
+        team={selectedTeamForAddMembers}
+        workers={workerList}
+        onAddUsers={handleAddUsersToTeam}
+      />
       {teamList.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-lg font-bold text-gray-900">Saved Teams</h3>
@@ -676,6 +851,16 @@ export function Workers() {
                     })}
                   </div>
                   <div className="flex gap-2 mt-4">
+                    <Button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTeamForAddMembers(team);
+                      }}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      Add User
+                    </Button>
                     <Button
                       type="button"
                       onClick={(e) => {
