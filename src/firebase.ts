@@ -1,13 +1,14 @@
-import { initializeApp } from "firebase/app";
+import { getApps, initializeApp } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
+  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
   type UserCredential,
 } from "firebase/auth";
-import { getDatabase, ref, onValue, get, push, set, update, remove } from "firebase/database";
+import { getDatabase, ref, onValue, get, push, set, update, remove, onDisconnect, serverTimestamp } from "firebase/database";
 
 interface FirebaseEnv {
   VITE_FIREBASE_API_KEY?: string;
@@ -50,6 +51,48 @@ export const auth = getAuth(app);
 export const db = getDatabase(app);
 export const googleProvider = new GoogleAuthProvider();
 
+export function trackUserOnlineStatus(userId: string): () => void {
+  const userRef = ref(db, `users/${userId}`);
+  const connectionRef = ref(db, '.info/connected');
+  let isDisposed = false;
+
+  const unsubscribe = onValue(connectionRef, async (snapshot) => {
+    if (snapshot.val() !== true || isDisposed) return;
+
+    try {
+      await onDisconnect(userRef).update({
+        onlineStatus: 'offline',
+        lastSeen: serverTimestamp(),
+      });
+      if (isDisposed) return;
+      await update(userRef, { onlineStatus: 'online' });
+    } catch (error) {
+      console.error('Failed to register user presence:', error);
+    }
+  });
+
+  return () => {
+    isDisposed = true;
+    unsubscribe();
+    void update(userRef, {
+      onlineStatus: 'offline',
+      lastSeen: serverTimestamp(),
+    }).catch((error) => console.error('Failed to clear user presence:', error));
+  };
+}
+
+const userCreationApp = getApps().find((existingApp) => existingApp.name === 'user-creation')
+  ?? initializeApp(firebaseConfig, 'user-creation');
+const userCreationAuth = getAuth(userCreationApp);
+
+export async function createUserWithoutChangingSession(email: string, password: string): Promise<UserCredential> {
+  return createUserWithEmailAndPassword(userCreationAuth, email, password);
+}
+
+export async function signOutUserCreationSession(): Promise<void> {
+  await signOut(userCreationAuth);
+}
+
 export function subscribeBins(callback: (bins: any[]) => void) {
   const binsRef = ref(db, 'bins');
   return onValue(binsRef, (snapshot) => {
@@ -79,14 +122,34 @@ export function subscribeCollections(callback: (collections: any[]) => void) {
 }
 
 export function subscribeSensorData(callback: (sensors: any[]) => void) {
-  const sensorsRef = ref(db, 'sensor_data');
-  return onValue(sensorsRef, (snapshot) => {
-    const data = snapshot.val();
-    const sensors = data
-      ? Object.entries(data).map(([key, value]) => ({ id: key, ...(typeof value === 'object' && value !== null ? value : {}) }))
-      : [];
-    callback(sensors);
-  });
+  const sensorBranches = ['sensor_data', 'sensor_data1', 'sensor_data2', 'sensor_data3', 'sensor_data4'];
+  const latestByBranch = new Map<string, any[]>();
+
+  const emit = () => {
+    const allSensors = sensorBranches.flatMap((branchName) => latestByBranch.get(branchName) ?? []);
+    callback(allSensors);
+  };
+
+  const unsubscribers = sensorBranches.map((branchName) =>
+    onValue(ref(db, branchName), (snapshot) => {
+      const data = snapshot.val();
+      latestByBranch.set(
+        branchName,
+        data && typeof data === 'object'
+          ? Object.entries(data).map(([key, value]) => ({
+              id: key,
+              branch: branchName,
+              ...(typeof value === 'object' && value !== null ? value : {}),
+            }))
+          : []
+      );
+      emit();
+    })
+  );
+
+  return () => {
+    unsubscribers.forEach((unsubscribe) => unsubscribe());
+  };
 }
 
 export function subscribeAlerts(callback: (alerts: any[]) => void, onError?: (err: any) => void) {

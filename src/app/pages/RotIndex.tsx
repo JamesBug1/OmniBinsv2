@@ -7,11 +7,30 @@
 // ============================================================================
 import { useState, useEffect } from 'react';
 import { ref, onValue } from 'firebase/database';
-import { db } from '../../firebase';
+import { db, subscribeSensorData } from '../../firebase';
 import { normalizeSensorRecord } from '../../lib/gasConversion';
+import { isSensorLinkedToRegisteredBin } from '../../lib/binSensorLink';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Wind, AlertTriangle } from 'lucide-react';
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+function parseSensorTimestamp(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value >= 1e12 ? value : value >= 1e9 ? value * 1000 : 0;
+  }
+
+  if (typeof value !== 'string' || !value.trim()) return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) {
+    return numeric >= 1e12 ? numeric : numeric >= 1e9 ? numeric * 1000 : 0;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 // ============================================================================
 // MAIN COMPONENT
@@ -22,16 +41,75 @@ export function RotIndex() {
   const [highRotBins, setHighRotBins] = useState(0);
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [binRotData, setBinRotData] = useState<any[]>([]);
+  const [registeredBins, setRegisteredBins] = useState<any[]>([]);
 
   useEffect(() => {
-    const sensorDataRef = ref(db, 'sensor_data');
-    const unsubscribe = onValue(sensorDataRef, (snapshot) => {
-      const data = snapshot.val();
-      const records = data
-        ? Object.entries(data)
-            .map(([key, value]) => normalizeSensorRecord(key, value))
-            .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
-        : [];
+    return onValue(ref(db, 'bins'), (snapshot) => {
+      const data = snapshot.val() ?? {};
+      setRegisteredBins(Object.entries(data).map(([id, value]) => ({
+        id,
+        ...(typeof value === 'object' && value !== null ? value : {}),
+      })));
+    });
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeSensorData((sensorRecords) => {
+      const now = Date.now();
+      const cutoff = now - DAY_MS;
+      const readingsByHourAndBin = Array.from({ length: 24 }, () => new Map<string, {
+        nh3Total: number;
+        ch4Total: number;
+        readingCount: number;
+      }>());
+
+      sensorRecords.forEach((item) => {
+        const normalized = { ...normalizeSensorRecord(item.id, item), id: item.id, branch: item.branch };
+        if (!isSensorLinkedToRegisteredBin(normalized, registeredBins)) return;
+
+        const timestamp = parseSensorTimestamp(item.timestamp ?? item.time ?? item.updatedAt);
+        if (timestamp < cutoff || timestamp > now) return;
+
+        const hourIndex = Math.min(23, Math.floor((timestamp - cutoff) / HOUR_MS));
+        const binKey = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown-bin').trim();
+        const binReadings = readingsByHourAndBin[hourIndex];
+        const totals = binReadings.get(binKey) ?? { nh3Total: 0, ch4Total: 0, readingCount: 0 };
+        totals.nh3Total += normalized.nh3;
+        totals.ch4Total += normalized.ch4;
+        totals.readingCount += 1;
+        binReadings.set(binKey, totals);
+      });
+
+      const history = readingsByHourAndBin.map((binReadings, hourIndex) => {
+        const perBinAverages = Array.from(binReadings.values());
+        const timestamp = cutoff + (hourIndex + 1) * HOUR_MS;
+        if (perBinAverages.length === 0) {
+          return { timestamp, time: new Date(timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }), nh3: null, ch4: null, rotIndex: null };
+        }
+
+        const nh3 = perBinAverages.reduce((sum, item) => sum + item.nh3Total / item.readingCount, 0) / perBinAverages.length;
+        const ch4 = perBinAverages.reduce((sum, item) => sum + item.ch4Total / item.readingCount, 0) / perBinAverages.length;
+        return {
+          timestamp,
+          time: new Date(timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          nh3,
+          ch4,
+          rotIndex: (nh3 + ch4) / 2,
+        };
+      });
+
+      const dedupedByNode = new Map<string, any>();
+      sensorRecords.forEach((item) => {
+        const normalized = { ...normalizeSensorRecord(item.id, item), id: item.id, branch: item.branch };
+        if (!isSensorLinkedToRegisteredBin(normalized, registeredBins)) return;
+        const key = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown-bin').trim();
+        const existing = dedupedByNode.get(key);
+        if (!existing || (normalized.timestamp ?? 0) >= (existing.timestamp ?? 0)) {
+          dedupedByNode.set(key, normalized);
+        }
+      });
+
+      const records = Array.from(dedupedByNode.values()).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 
       const latestByBin = new Map<string, any>();
       records.forEach((rec) => {
@@ -52,36 +130,23 @@ export function RotIndex() {
         : 0;
       const highRotBinCount = latestRecords.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
 
-      const history = latestRecords.slice(-24).map((rec) => ({
-        time: rec.timestamp
-          ? new Date(rec.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-          : rec.id,
-        nh3: rec.nh3,
-        ch4: rec.ch4,
-        rotIndex: (rec.nh3 + rec.ch4) / 2,
-      }));
-
-      const resolveBinLabel = (rec: any) => {
-        const raw = String(rec.node ?? rec.location ?? rec.id ?? 'Unknown');
-        const normalized = raw.toUpperCase().replace(/\s+/g, '');
-
-        if (normalized === 'NODE1' || normalized === 'NODE=1' || normalized === 'NODE=01') {
-          return 'BIN-10';
-        }
-
-        if (!raw || raw === 'Unknown' || raw.toLowerCase() === 'unknown' || normalized.startsWith('NODE=')) {
-          return null;
-        }
-
-        return raw;
-      };
-
-      const topRot = [...latestRecords]
-        .map((rec) => ({
-          bin: resolveBinLabel(rec),
-          rotIndex: (rec.nh3 + rec.ch4) / 2,
-        }))
-        .filter((item) => item.bin)
+      const topRot = Array.from(
+        new Map(
+          [...latestRecords]
+            .map((rec) => {
+              const matchedBin = registeredBins.find((bin) => isSensorLinkedToRegisteredBin(rec, [bin]));
+              const sensorLabel = String(rec.node ?? rec.location ?? rec.id ?? 'unknown-bin');
+              return {
+                key: `${matchedBin?.id ?? 'unknown-bin'}::${sensorLabel}`,
+                label: sensorLabel,
+                bin: matchedBin?.id ?? null,
+                rotIndex: (rec.nh3 + rec.ch4) / 2,
+              };
+            })
+            .filter((item) => item.bin || item.label)
+            .map((item) => [item.key, item] as const)
+        ).values()
+      )
         .sort((a, b) => b.rotIndex - a.rotIndex)
         .slice(0, 6);
 
@@ -93,7 +158,7 @@ export function RotIndex() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [registeredBins]);
 
   return (
     <div className="space-y-6">
@@ -160,15 +225,15 @@ export function RotIndex() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Bins with Highest Rot Index</CardTitle>
+          <CardTitle>Latest Bins Records with High Rot Index</CardTitle>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={binRotData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="bin" />
+              <XAxis dataKey="label" />
               <YAxis />
-              <Tooltip />
+              <Tooltip formatter={(value: number) => [`${value.toFixed(1)}`, 'Rot Index']} labelFormatter={(label) => `Sensor: ${label}`} />
               <Bar dataKey="rotIndex" fill="#ef4444" name="Rot Index" key="rot-bar" />
             </BarChart>
           </ResponsiveContainer>

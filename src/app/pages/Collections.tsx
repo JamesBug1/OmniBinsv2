@@ -5,8 +5,10 @@
 // ============================================================================
 // IMPORTS
 // ============================================================================
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
+import { onValue, ref, update } from 'firebase/database';
+import { db } from '../../firebase';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -15,16 +17,22 @@ import { Truck, MapPin, Clock, User, CheckCircle, AlertCircle } from 'lucide-rea
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
-// Sample data removed - connect to your database for live collection data
-const collectionsData: any[] = [];
 const teams: string[] = [];
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 export function Collections() {
-  const [taskList, setTaskList] = useState(collectionsData);
+  const [taskList, setTaskList] = useState<any[]>([]);
   const [filter, setFilter] = useState<string>('all');
+
+  useEffect(() => onValue(ref(db, 'collections'), (snapshot) => {
+    const data = snapshot.val() ?? {};
+    setTaskList(Object.entries(data).map(([id, value]) => ({
+      id,
+      ...(typeof value === 'object' && value !== null ? value : {}),
+    })));
+  }), []);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -43,14 +51,34 @@ export function Collections() {
     }
   };
 
+  const getTaskStatusBadge = (task: any) => {
+    if (task.status === 'completed') return getStatusBadge(task.status);
+    if (task.staffCompleted) {
+      return <Badge className="bg-orange-500 text-white">Awaiting bin confirmation</Badge>;
+    }
+    return getStatusBadge(task.status);
+  };
+
   const assignTeam = (taskId: number, team: string) => {
     setTaskList(prev => prev.map(task => task.id === taskId ? { ...task, assignedTo: team, status: 'in-progress' as const } : task));
   };
 
-  const completeTask = (taskId: number) => {
-    const now = new Date();
-    const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    setTaskList(prev => prev.map(task => task.id === taskId ? { ...task, status: 'completed' as const, completedAt: timeString } : task));
+  const completeTask = async (task: any) => {
+    const taskId = String(task.id ?? '');
+    if (!taskId || task.staffCompleted) return;
+
+    const staffCompletedAt = new Date().toISOString();
+    try {
+      await update(ref(db), {
+        [`collections/${taskId}/staffCompleted`]: true,
+        [`collections/${taskId}/staffCompletedAt`]: staffCompletedAt,
+        [`tasks/${taskId}/staffCompleted`]: true,
+        [`tasks/${taskId}/staffCompletedAt`]: staffCompletedAt,
+      });
+    } catch (error) {
+      console.error('Failed to save staff collection confirmation:', error);
+      alert('Unable to confirm this collection. Please try again.');
+    }
   };
 
   const filteredTasks = taskList.filter(task => {
@@ -116,7 +144,7 @@ export function Collections() {
                         <div className="flex items-center gap-2 mb-1">
                           <p className="font-bold">{task.bin}</p>
                           {getPriorityBadge(task.priority)}
-                          {getStatusBadge(task.status)}
+                          {getTaskStatusBadge(task)}
                         </div>
                         <div className="flex items-center gap-1 text-sm text-gray-600">
                           <MapPin className="h-4 w-4" />
@@ -154,11 +182,14 @@ export function Collections() {
                         {team}
                       </Button>
                     ))}
-                    {task.status === 'in-progress' && (
-                      <Button size="sm" onClick={() => completeTask(task.id)} className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">
+                    {task.status === 'in-progress' && !task.staffCompleted && (
+                      <Button size="sm" onClick={() => completeTask(task)} className="bg-green-600 hover:bg-green-700 text-white cursor-pointer">
                         <CheckCircle className="h-4 w-4 mr-2" />
-                        Mark Complete
+                        Confirm Collection Done
                       </Button>
+                    )}
+                    {task.staffCompleted && task.status !== 'completed' && (
+                      <p className="max-w-48 text-right text-xs text-orange-700">Staff confirmed. Waiting for the bin to read 10 kg or less.</p>
                     )}
                   </div>
                 </div>

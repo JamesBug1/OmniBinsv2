@@ -13,9 +13,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Shield, User, Users, Settings, X, Search, Edit2, Save, Mail, Phone, Calendar, Trash2, Upload, Clock } from 'lucide-react';
-import { auth, addUser, getUsers, removeUser, updateUserStatus, db } from '../../firebase';
-import { ref, get, update as firebaseUpdate } from 'firebase/database';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { addUser, addUsersToTeam, createUserWithoutChangingSession, getTeams, getUsers, removeUser, signOutUserCreationSession, updateUserStatus, db } from '../../firebase';
+import { ref, get, onValue, update as firebaseUpdate } from 'firebase/database';
+import { sendEmailVerification } from 'firebase/auth';
 // ============================================================================
 // DATA & CONSTANTS
 // ============================================================================
@@ -57,11 +57,7 @@ function ApprovalModal({ isOpen, onClose, user, onApproved }: { isOpen: boolean;
 
   const handleReject = async () => {
     try {
-      await updateUserStatus(user.id, {
-        status: 'rejected',
-        rejectionReason: reason || 'No reason provided',
-        approvalNotes: reason || 'Rejected by admin',
-      });
+      await removeUser(user.id);
       onApproved();
       onClose();
     } catch (error) {
@@ -126,7 +122,30 @@ function ApprovalModal({ isOpen, onClose, user, onApproved }: { isOpen: boolean;
 
 function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClose: () => void; onUserAdded: () => void }) {
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '', team: '', role: '' });
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let isActive = true;
+
+    const loadTeams = async () => {
+      try {
+        const availableTeams = await getTeams();
+        if (isActive) {
+          setTeams(Array.isArray(availableTeams) ? availableTeams.filter((team) => team.id && team.name) : []);
+        }
+      } catch (error) {
+        console.error('Failed to load teams:', error);
+        if (isActive) setTeams([]);
+      }
+    };
+
+    void loadTeams();
+    return () => {
+      isActive = false;
+    };
+  }, [isOpen]);
 
   const handleTeamChange = (value: string) => {
     setFormData({ ...formData, team: value });
@@ -160,7 +179,7 @@ function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClo
     }
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+      const userCredential = await createUserWithoutChangingSession(formData.email, formData.password);
       const userData = {
         name: formData.name,
         email: formData.email || '',
@@ -170,9 +189,17 @@ function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClo
         status: 'active',
       };
 
-      await addUser(userData);
-      if (userCredential?.user) {
-        await userCredential.user.sendEmailVerification();
+      try {
+        const addedUser = await addUser(userData);
+        const selectedTeam = teams.find((team) => team.name === formData.team);
+        if (selectedTeam && addedUser?.id) {
+          await addUsersToTeam(selectedTeam.id, [String(addedUser.id)]);
+        }
+        if (userCredential.user) {
+          await sendEmailVerification(userCredential.user);
+        }
+      } finally {
+        await signOutUserCreationSession();
       }
       alert('User added successfully!');
       setFormData({ name: '', email: '', phone: '', password: '', team: '', role: '' });
@@ -216,11 +243,10 @@ function AddUserModal({ isOpen, onClose, onUserAdded }: { isOpen: boolean; onClo
                   <label className="block text-sm font-medium text-gray-700 mb-1">Team <span className="text-red-500">*</span></label>
                   <select value={formData.team} onChange={(e) => handleTeamChange(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500" required>
                     <option value="">Select Team</option>
-                    <option>Team A</option>
-                    <option>Team B</option>
-                    <option>Team C</option>
+                    {teams.map((team) => <option key={team.id} value={team.name}>{team.name}</option>)}
                     <option>N/A</option>
                   </select>
+                  {teams.length === 0 && <p className="mt-1 text-xs text-gray-500">No teams have been created yet.</p>}
                 </div>
                 {showRoleDropdown && (
                   <div>
@@ -252,9 +278,12 @@ interface UserData {
   phone: string;
   role: string;
   department: string;
+  team?: string;
   joinedDate: string;
   status: string;
   lastLogin: string;
+  onlineStatus?: string;
+  lastSeen?: number;
   avatar?: string;
 }
 
@@ -554,7 +583,15 @@ export function UserManagement() {
   };
 
   useEffect(() => {
-    loadUsers();
+    return onValue(ref(db, 'users'), (snapshot) => {
+      const data = snapshot.val() ?? {};
+      setUserList(Object.entries(data).map(([id, item]) => ({
+        id,
+        ...(typeof item === 'object' && item !== null ? item : {}),
+      })) as UserData[]);
+    }, (error) => {
+      console.error('Failed to subscribe to user updates:', error);
+    });
   }, []);
 
   const filteredUsers = userList.filter(user =>
@@ -634,7 +671,7 @@ export function UserManagement() {
   };
 
   const totalUsers = userList.filter(u => u.status !== 'rejected').length;
-  const activeUsers = userList.filter(u => u.status === 'active').length;
+  const onlineUsers = userList.filter(u => u.status !== 'rejected' && String(u.onlineStatus || '').toLowerCase() === 'online').length;
   const pendingUsers = userList.filter(u => u.status === 'pending');
 
   return (
@@ -676,8 +713,8 @@ export function UserManagement() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-900 font-semibold">Active Users</p>
-                <p className="text-2xl font-bold text-gray-900">{activeUsers}</p>
+                <p className="text-sm text-gray-900 font-semibold">Online Now</p>
+                <p className="text-2xl font-bold text-gray-900">{onlineUsers}</p>
               </div>
               <User className="h-8 w-8 text-green-500" />
             </div>
@@ -748,12 +785,15 @@ export function UserManagement() {
                     <div className="flex items-center gap-2 mb-1">
                       <p className="font-bold text-gray-900">{user.name}</p>
                       {getRoleBadge(user.role)}
+                      <Badge className={String(user.onlineStatus || '').toLowerCase() === 'online' ? 'bg-green-600 text-white' : 'bg-gray-500 text-white'}>
+                        {String(user.onlineStatus || '').toLowerCase() === 'online' ? 'Online' : 'Offline'}
+                      </Badge>
                       {user.status === 'inactive' && (
                         <Badge className="bg-gray-600 text-white">Inactive</Badge>
                       )}
                     </div>
                     <p className="text-sm text-gray-900 font-medium">{user.email}</p>
-                    <p className="text-xs text-gray-800 font-medium mt-1">Last login: {user.lastLogin}</p>
+                    <p className="text-sm text-gray-700">Team: {user.team || user.department || 'N/A'}</p>
                   </div>
                 </div>
                 <div className="flex gap-2">

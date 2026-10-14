@@ -12,6 +12,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { AlertCircle, Bell, CheckCircle, XCircle, Wind, Weight, X } from 'lucide-react';
 import { subscribeAlerts, subscribeReports, subscribeSensorData, subscribeBins } from '../../firebase';
+import { isSensorLinkedToRegisteredBin } from '../../lib/binSensorLink';
 
 // ============================================================================
 // DATA & CONSTANTS
@@ -217,6 +218,7 @@ export function Alerts() {
     const FULL_KG = 50;
     const NEAR_FULL_KG = 35;
     for (const s of sensorData) {
+      if (!isSensorLinkedToRegisteredBin(s, binsData)) continue;
       const node = String(s.node ?? s.id ?? '').trim();
       const weight = Number(s.weight ?? s.weight_kg ?? s.wasteWeight ?? 0);
       const gas_level = String(s.gas_level ?? s.gasLevel ?? 'NORMAL');

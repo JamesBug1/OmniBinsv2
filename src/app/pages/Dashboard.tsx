@@ -1,16 +1,63 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ref, onValue } from 'firebase/database';
-import { db, subscribeBins } from '../../firebase';
+import { db, subscribeAlerts, subscribeBins, subscribeReports, subscribeSensorData } from '../../firebase';
 import { normalizeSensorRecord } from '../../lib/gasConversion';
+import { isSensorLinkedToRegisteredBin } from '../../lib/binSensorLink';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Trash2, AlertCircle, Wind, Droplet } from 'lucide-react';
 
-const recentAlerts: any[] = [];
-const weeklyCollections: any[] = [];
+function parseTimestamp(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 0 && value < 1e12 ? value * 1000 : value;
+  }
+  if (typeof value !== 'string' || !value.trim()) return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric > 0 && numeric < 1e12 ? numeric * 1000 : numeric;
+  if (/^\d{1,2}:\d{2}(?:\s|$)/.test(value.trim())) return null;
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getCompletionTimestamp(collection: any): number | null {
+  const values = [
+    collection.finishedAt,
+    collection.completedAt,
+    collection.timestamp,
+    collection.time,
+    collection.createdAt,
+    collection.created_at,
+    collection.scheduledDate,
+  ];
+  return values.map(parseTimestamp).find((timestamp) => timestamp !== null) ?? null;
+}
+
+function buildWeeklyCollections(collections: any[]) {
+  const completed = collections.filter((collection) => String(collection.status ?? '').toLowerCase() === 'completed');
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (6 - index));
+    const dayStart = date.getTime();
+    const nextDayStart = dayStart + 24 * 60 * 60 * 1000;
+    const count = completed.filter((collection) => {
+      const timestamp = getCompletionTimestamp(collection);
+      return timestamp !== null && timestamp >= dayStart && timestamp < nextDayStart;
+    }).length;
+
+    return {
+      day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      collections: count,
+    };
+  });
+}
 
 export function Dashboard() {
+  const [registeredBins, setRegisteredBins] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalBins: 0,
     fullBins: 12,
@@ -18,9 +65,12 @@ export function Dashboard() {
     activeNeutralization: 3,
   });
   const [gasLevels, setGasLevels] = useState<any[]>([]);
+  const [recentAlerts, setRecentAlerts] = useState<any[]>([]);
+  const [weeklyCollections, setWeeklyCollections] = useState(() => buildWeeklyCollections([]));
 
   useEffect(() => {
     const unsubscribeBins = subscribeBins((bins) => {
+      setRegisteredBins(bins);
       setStats((prev) => ({ ...prev, totalBins: bins.length }));
     });
 
@@ -28,14 +78,19 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
-    const sensorDataRef = ref(db, 'sensor_data');
-    const unsubscribe = onValue(sensorDataRef, (snapshot) => {
-      const data = snapshot.val();
-      const records = data
-        ? Object.entries(data)
-            .map(([key, value]) => normalizeSensorRecord(key, value))
-            .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
-        : [];
+    const unsubscribe = subscribeSensorData((sensorRecords) => {
+      const dedupedByNode = new Map<string, any>();
+      sensorRecords.forEach((item) => {
+        const normalized = { ...normalizeSensorRecord(item.id, item), id: item.id, branch: item.branch };
+        if (!isSensorLinkedToRegisteredBin(normalized, registeredBins)) return;
+        const key = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown-bin').trim();
+        const existing = dedupedByNode.get(key);
+        if (!existing || (normalized.timestamp ?? 0) >= (existing.timestamp ?? 0)) {
+          dedupedByNode.set(key, normalized);
+        }
+      });
+
+      const records = Array.from(dedupedByNode.values()).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 
       const latestByBin = new Map<string, any>();
       records.forEach((rec) => {
@@ -51,10 +106,15 @@ export function Dashboard() {
       const highRotIndex = latestBinRecords.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
       const activeNeutralization = latestBinRecords.filter((rec) => rec.nh3 > 35 || rec.ch4 > 70).length;
 
-      const points = records.slice(-24).map((rec) => ({
+      const points = latestBinRecords
+        .slice()
+        .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+        .slice(-24)
+        .map((rec) => ({
+        sensor: String(rec.node ?? rec.location ?? rec.id ?? 'Unknown sensor'),
         time: rec.timestamp
           ? new Date(rec.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-          : rec.id,
+          : 'Time unavailable',
         nh3: rec.nh3,
         ch4: rec.ch4,
       }));
@@ -69,11 +129,62 @@ export function Dashboard() {
     });
 
     return () => unsubscribe();
+  }, [registeredBins]);
+
+  useEffect(() => {
+    let alerts: any[] = [];
+    let reports: any[] = [];
+    let collections: any[] = [];
+
+    const refreshDashboardData = () => {
+      const alertItems = [
+        ...alerts.map((item) => ({ ...item, source: 'alert' })),
+        ...reports.map((item) => ({ ...item, source: 'report' })),
+      ].map((item) => {
+        const reportMessage = item.description ?? item.summary ?? item.issueType;
+        const rawTime = item.time ?? item.timestamp ?? item.createdAt ?? item.created_at;
+        return {
+          id: item.id,
+          bin: item.bin ?? item.node ?? item.location ?? item.place ?? (item.source === 'report' ? 'Report' : 'Unknown bin'),
+          message: item.message ?? item.text ?? item.title ?? reportMessage ?? 'Notification',
+          severity: String(item.severity ?? item.level ?? (item.source === 'report' ? 'warning' : 'info')).toLowerCase(),
+          time: rawTime,
+          sortTime: parseTimestamp(rawTime) ?? 0,
+        };
+      });
+
+      setRecentAlerts(alertItems.sort((a, b) => b.sortTime - a.sortTime).slice(0, 5));
+      setWeeklyCollections(buildWeeklyCollections(collections));
+    };
+
+    const unsubscribeAlerts = subscribeAlerts((items) => {
+      alerts = items;
+      refreshDashboardData();
+    }, (error) => console.error('Failed to load dashboard alerts:', error));
+    const unsubscribeReports = subscribeReports((items) => {
+      reports = items;
+      refreshDashboardData();
+    }, (error) => console.error('Failed to load dashboard reports:', error));
+    const unsubscribeCollections = onValue(ref(db, 'collections'), (snapshot) => {
+      const data = snapshot.val() ?? {};
+      collections = Object.entries(data).map(([id, value]) => ({
+        id,
+        ...(typeof value === 'object' && value !== null ? value : {}),
+      }));
+      refreshDashboardData();
+    }, (error) => console.error('Failed to load dashboard collections:', error));
+
+    return () => {
+      unsubscribeAlerts();
+      unsubscribeReports();
+      unsubscribeCollections();
+    };
   }, []);
 
-  const getAlertColor = (type: string) => {
-    switch (type) {
-      case 'urgent': return 'bg-red-100 text-red-800 border-red-200';
+  const getAlertColor = (severity: string) => {
+    switch (severity) {
+      case 'critical':
+      case 'error': return 'bg-red-100 text-red-800 border-red-200';
       case 'warning': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'success': return 'bg-green-100 text-green-800 border-green-200';
       default: return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -110,62 +221,68 @@ export function Dashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.4 }}>
-          <Card className="h-full">
-            <CardHeader><CardTitle>Recent Alerts & Notifications</CardTitle></CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {recentAlerts.map((alert) => (
-                  <div key={alert.id} className={`flex items-start gap-3 rounded-lg border p-3 ${getAlertColor(alert.type)}`}>
-                    <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-gray-900">{alert.bin}</p>
-                      <p className="text-sm text-gray-900 font-medium">{alert.message}</p>
-                      <p className="text-xs mt-1 font-medium text-gray-800">{alert.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Weekly Collections */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.5 }}>
-          <Card className="h-full flex flex-col">
-            <CardHeader><CardTitle>Weekly Collections</CardTitle></CardHeader>
-            <CardContent className="flex-1">
-              <ResponsiveContainer width="100%" height="100%" minHeight={250}>
-                <BarChart data={weeklyCollections}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="day" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="collections" fill="#10b981" />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Gas Levels Chart */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.6 }}>
+      {/* Weekly Collections */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.4 }}>
         <Card>
-          <CardHeader><CardTitle>Average Gas Levels (24h)</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Weekly Collections</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height="100%" minHeight={350}>
-              <LineChart data={gasLevels}>
+            {weeklyCollections.every((day) => day.collections === 0) && (
+              <p className="mb-2 text-sm text-gray-500">No completed collections in the last 7 days.</p>
+            )}
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={weeklyCollections}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="time" />
+                <XAxis dataKey="day" />
                 <YAxis />
                 <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="nh3" stroke="#f59e0b" name="NH₃ (Ammonia) (ppm)" strokeWidth={2} />
-                <Line type="monotone" dataKey="ch4" stroke="#3b82f6" name="CH₄ (Methane) (ppm)" strokeWidth={2} />
-              </LineChart>
+                <Bar dataKey="collections" fill="#10b981" />
+              </BarChart>
             </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Gas Levels Chart */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.5 }}>
+        <Card>
+          <CardHeader><CardTitle>Latest Gas Readings by Sensor</CardTitle></CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={350}>
+              <BarChart data={gasLevels} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" />
+                <YAxis type="category" dataKey="sensor" width={90} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="nh3" fill="#f59e0b" name="NH₃ (Ammonia) (ppm)" />
+                <Bar dataKey="ch4" fill="#3b82f6" name="CH₄ (Methane) (ppm)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.6 }}>
+        <Card>
+          <CardHeader><CardTitle>Recent Alerts & Notifications</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-3">
+              {recentAlerts.map((alert) => (
+                <div key={`${alert.source}-${alert.id}`} className={`flex items-start gap-3 rounded-lg border p-3 ${getAlertColor(alert.severity)}`}>
+                  <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm text-gray-900">{alert.bin}</p>
+                    <p className="text-sm text-gray-900 font-medium">{alert.message}</p>
+                    <p className="text-xs mt-1 font-medium text-gray-800">
+                      {parseTimestamp(alert.time)
+                        ? new Date(parseTimestamp(alert.time)!).toLocaleString()
+                        : String(alert.time ?? 'Time unavailable')}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {recentAlerts.length === 0 && <p className="text-sm text-gray-500">No recent alerts or reports.</p>}
+            </div>
           </CardContent>
         </Card>
       </motion.div>

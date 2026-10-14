@@ -2,7 +2,7 @@
 import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { RouterProvider } from 'react-router';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth, isAdminUser } from './firebase';
+import { auth, getUserByEmail, trackUserOnlineStatus } from './firebase';
 
 import { createAppRouter } from './app/routes'; 
 
@@ -22,7 +22,14 @@ export default function App() {
 
   // Check Firebase Auth state on app load
   useEffect(() => {
+    let stopPresenceTracking: (() => void) | undefined;
+    let authChangeId = 0;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const currentAuthChangeId = ++authChangeId;
+      stopPresenceTracking?.();
+      stopPresenceTracking = undefined;
+
       try {
         if (!user) {
           setIsLoggedIn(false);
@@ -39,8 +46,14 @@ export default function App() {
           return;
         }
 
-        const isAdmin = await isAdminUser(user.email);
+        const profile = await getUserByEmail(user.email);
+        if (currentAuthChangeId !== authChangeId) return;
+
+        const isAdmin = String(profile?.role || '').trim().toLowerCase() === 'admin';
         if (isAdmin) {
+          if (profile?.id) {
+            stopPresenceTracking = trackUserOnlineStatus(String(profile.id));
+          }
           setIsLoggedIn(true);
           localStorage.setItem('omniToken', 'authenticated');
         } else {
@@ -49,15 +62,19 @@ export default function App() {
           localStorage.removeItem('omniToken');
         }
       } catch (error) {
+        if (currentAuthChangeId !== authChangeId) return;
         console.error('Admin access check failed:', error);
         setIsLoggedIn(false);
         localStorage.removeItem('omniToken');
       } finally {
-        setIsInitialized(true);
+        if (currentAuthChangeId === authChangeId) setIsInitialized(true);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      stopPresenceTracking?.();
+    };
   }, []);
 
   const handleLoginSuccess = (token?: string) => {

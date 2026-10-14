@@ -3,131 +3,237 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { MapPin, Navigation, Clock } from 'lucide-react';
-import { subscribeBins, subscribeSensorData } from '../../firebase';
+import { MapPin, Clock } from 'lucide-react';
+import { subscribeBins, subscribeCollections, subscribeSensorData } from '../../firebase';
+import { isSensorLinkedToBin } from '../../lib/binSensorLink';
 import 'leaflet/dist/leaflet.css';
 
 const campusCenter = {
   lat: 9.8826944,
   lng: 123.5993333,
 };
+const SENSOR_OFFLINE_AFTER_MS = 5 * 60 * 1000;
 
-const fallbackBins = [
-  {
-    id: 'Bin-10',
-    location: 'CTU Argao Campus, Cebu, Philippines',
-    status: 'normal',
-    capacity: 18,
-    lat: 9.8826944,
-    lng: 123.5993333,
-    lastCollection: '2026-06-15',
-  },
-  {
-    id: 'Bin-11',
-    location: 'CTU Argao Campus Main Gate',
-    status: 'near-full',
-    capacity: 67,
-    lat: 9.8826944,
-    lng: 123.5993333,
-    lastCollection: '2026-06-13',
-  },
-  {
-    id: 'Bin-12',
-    location: 'CTU Argao Campus Admin Building',
-    status: 'full',
-    capacity: 92,
-    lat: 9.8826944,
-    lng: 123.5993333,
-    lastCollection: '2026-06-10',
-  },
-];
+function getSensorTimestamp(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value >= 1e12) return value;
+    if (value >= 1e9) return value * 1000;
+    return 0;
+  }
+  if (typeof value !== 'string' || !value.trim()) return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return getSensorTimestamp(numeric);
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatSensorTimestamp(timestamp: number): string {
+  return timestamp ? new Date(timestamp).toLocaleString() : 'No data received';
+}
+
+function getCollectionTimestamp(collection: any): number {
+  const values = [
+    collection.finishedAt,
+    collection.completedAt,
+    collection.timestamp,
+    collection.time,
+    collection.createdAt,
+    collection.created_at,
+    collection.scheduledDate,
+  ];
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      if (value >= 1e12) return value;
+      if (value >= 1e9) return value * 1000;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return 0;
+}
 
 type BinMapEntry = {
   id: string;
   location: string;
+  sensorDataName?: string;
   status: string;
   capacity: number;
+  lastDataReceived: string;
   lat: number;
   lng: number;
+  locationSource?: string;
+  gpsValid?: boolean;
   lastCollection: string;
 };
 
+function getLocationText(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'object' && value !== null) {
+    const location = value as Record<string, unknown>;
+    const text = location.address ?? location.name ?? location.place ?? location.label;
+    if (typeof text === 'string' && text.trim()) return text.trim();
+  }
+  return null;
+}
+
+function getValidCoordinates(item: any): { lat: number; lng: number } | null {
+  const rawLat = item?.latitude ?? item?.lat ?? item?.coordinates?.lat;
+  const rawLng = item?.longitude ?? item?.lng ?? item?.coordinates?.lng;
+  if (rawLat == null || rawLng == null || rawLat === '' || rawLng === '') return null;
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return null;
+  }
+  return { lat, lng };
+}
+
 const normalizeBinRecord = (item: any): BinMapEntry => {
   const id = String(item?.id ?? item?.binId ?? item?.name ?? 'Bin');
-  const rawLocation = item?.location ?? item?.address ?? item?.name ?? item?.node ?? 'CTU Argao Campus';
-  const rawLat = Number(item?.lat ?? item?.latitude ?? item?.coordinates?.lat ?? item?.location?.lat ?? campusCenter.lat);
-  const rawLng = Number(item?.lng ?? item?.longitude ?? item?.coordinates?.lng ?? item?.location?.lng ?? campusCenter.lng);
+  const rawLocation = getLocationText(item?.location ?? item?.address ?? item?.name ?? item?.node) ?? 'Location unavailable';
+  const coordinates = getValidCoordinates(item) ?? campusCenter;
   const capacity = Number(item?.capacity ?? item?.fillLevel ?? item?.percentage ?? 0);
   const status = String(item?.status ?? (capacity >= 80 ? 'full' : capacity >= 60 ? 'near-full' : 'normal')).toLowerCase();
 
   return {
     id: id.startsWith('Bin') || id.startsWith('BIN') ? id : `Bin-${id}`,
-    location: String(rawLocation),
+    location: rawLocation,
+    sensorDataName: item?.sensorDataName ?? item?.sensorNode ?? item?.sensorId,
     status,
     capacity: Number.isFinite(capacity) ? capacity : 0,
-    lat: Number.isFinite(rawLat) ? rawLat : campusCenter.lat,
-    lng: Number.isFinite(rawLng) ? rawLng : campusCenter.lng,
-    lastCollection: item?.lastCollection ?? item?.updatedAt ?? item?.lastUpdated ?? 'Recently',
+    lastDataReceived: 'No data received',
+    lat: coordinates.lat,
+    lng: coordinates.lng,
+    locationSource: getLocationText(item?.location_source) ?? undefined,
+    gpsValid: typeof item?.gps_valid === 'boolean' ? item.gps_valid : undefined,
+    lastCollection: item?.lastCollection ?? 'No collection recorded',
   };
 };
 
+function FitMapToBins({ bins }: { bins: BinMapEntry[] }) {
+  const map = useMap();
+  const coordinateKey = bins.map((bin) => `${bin.id}:${bin.lat},${bin.lng}`).join('|');
+
+  useEffect(() => {
+    if (bins.length === 0) return;
+    if (bins.length === 1) {
+      map.setView([bins[0].lat, bins[0].lng], Math.max(map.getZoom(), 15));
+      return;
+    }
+    map.fitBounds(bins.map((bin) => [bin.lat, bin.lng] as [number, number]), { padding: [32, 32], maxZoom: 16 });
+  }, [coordinateKey, map]);
+
+  return null;
+}
+
 export function MapLocation() {
-  const [liveBins, setLiveBins] = useState<BinMapEntry[]>(fallbackBins);
-  const [selectedBin, setSelectedBin] = useState<BinMapEntry | null>(fallbackBins[0]);
+  const [liveBins, setLiveBins] = useState<BinMapEntry[]>([]);
+  const [selectedBin, setSelectedBin] = useState<BinMapEntry | null>(null);
   const [rawBins, setRawBins] = useState<any[]>([]);
-  const [sensorsByNode, setSensorsByNode] = useState<Record<string, any>>({});
+  const [sensorRecords, setSensorRecords] = useState<any[]>([]);
+  const [collectionRecords, setCollectionRecords] = useState<any[]>([]);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getLatestSensorForBin = (bin: BinMapEntry) => sensorRecords
+    .filter((sensor) => isSensorLinkedToBin(sensor, bin))
+    .reduce<any | null>((latest, sensor) => {
+      if (!latest) return sensor;
+      const timestamp = getSensorTimestamp(sensor.timestamp ?? sensor.time ?? sensor.updatedAt);
+      const latestTimestamp = getSensorTimestamp(latest.timestamp ?? latest.time ?? latest.updatedAt);
+      if (timestamp !== latestTimestamp) return timestamp > latestTimestamp ? sensor : latest;
+      return String(sensor.id ?? '') > String(latest.id ?? '') ? sensor : latest;
+    }, null);
+
+  const getLatestCollectionForBin = (bin: BinMapEntry) => collectionRecords
+    .filter((collection) =>
+      String(collection.status ?? '').toLowerCase() === 'completed' && isSensorLinkedToBin(collection, bin)
+    )
+    .reduce<any | null>((latest, collection) => {
+      if (!latest) return collection;
+      const timestamp = getCollectionTimestamp(collection);
+      const latestTimestamp = getCollectionTimestamp(latest);
+      if (timestamp !== latestTimestamp) return timestamp > latestTimestamp ? collection : latest;
+      return String(collection.id ?? '') > String(latest.id ?? '') ? collection : latest;
+    }, null);
 
   useEffect(() => {
     const unsubBins = subscribeBins((bins) => {
       setRawBins(bins || []);
     });
     const unsubSensors = subscribeSensorData((sensors) => {
-      const map: Record<string, any> = {};
-      sensors.forEach((s: any) => {
-        const node = String(s.node ?? s.location ?? s.id ?? '').toLowerCase();
-        if (node) map[node] = s;
-      });
-      setSensorsByNode(map);
+      setSensorRecords(sensors || []);
+    });
+    const unsubCollections = subscribeCollections((collections) => {
+      setCollectionRecords(collections || []);
     });
 
     return () => {
       try { unsubBins(); } catch (e) { /* ignore */ }
       try { unsubSensors(); } catch (e) { /* ignore */ }
+      try { unsubCollections(); } catch (e) { /* ignore */ }
     };
   }, []);
 
-  // Recompute liveBins whenever rawBins or sensors change
+  // Recompute markers from registered bins; sensor history alone is not inventory.
   useEffect(() => {
-    const normalized = (rawBins && rawBins.length > 0 ? rawBins.map(normalizeBinRecord) : fallbackBins).map((bin) => {
-      // Try to find sensor data for this bin by node name variants
-      const nodeKeys = [
-        bin.id.toLowerCase(),
-        bin.id.replace(/^bin[-_]?/i, '').toLowerCase(),
-      ];
-      let sensor: any = null;
-      for (const k of nodeKeys) {
-        if (sensorsByNode[k]) { sensor = sensorsByNode[k]; break; }
+    const normalized = rawBins.map(normalizeBinRecord).map((bin) => {
+      const sensor = getLatestSensorForBin(bin);
+      const latestCollection = getLatestCollectionForBin(bin);
+
+      if (sensor) {
+        const sensorLocation = getLocationText(sensor.location ?? sensor.address);
+        if (sensorLocation) bin.location = sensorLocation;
+
+        const sensorCoordinates = getValidCoordinates(sensor);
+        if (sensorCoordinates) {
+          bin.lat = sensorCoordinates.lat;
+          bin.lng = sensorCoordinates.lng;
+        }
+
+        bin.locationSource = getLocationText(sensor.location_source ?? sensor.locationSource) ?? bin.locationSource;
+        bin.gpsValid = typeof sensor.gps_valid === 'boolean' ? sensor.gps_valid : bin.gpsValid;
+      }
+
+      if (latestCollection) {
+        const timestamp = getCollectionTimestamp(latestCollection);
+        const rawDate = latestCollection.finishedAt ?? latestCollection.completedAt ?? latestCollection.timestamp ?? latestCollection.time;
+        bin.lastCollection = timestamp
+          ? new Date(timestamp).toLocaleString()
+          : String(rawDate ?? 'Collection completed');
       }
 
       if (sensor) {
+        const timestamp = getSensorTimestamp(sensor.timestamp ?? sensor.time ?? sensor.updatedAt);
+        const online = timestamp > 0 && now >= timestamp && now - timestamp < SENSOR_OFFLINE_AFTER_MS;
+        bin.lastDataReceived = formatSensorTimestamp(timestamp);
+        bin.status = online ? 'normal' : 'offline';
         const weight = Number(sensor.weight ?? sensor.weight_kg ?? sensor.wasteWeight ?? 0);
         if (Number.isFinite(weight)) {
-          const cap = Math.min(100, Math.round((weight / 50) * 100));
+          const cap = Math.min(100, Math.max(0, Math.round((weight / 50) * 100)));
           bin.capacity = cap;
-          bin.status = cap >= 80 ? 'full' : cap >= 60 ? 'near-full' : 'normal';
+          if (online) bin.status = weight >= 50 ? 'full' : weight >= 35 ? 'near-full' : 'normal';
         }
+      } else {
+        bin.status = 'offline';
       }
 
       return bin;
     });
 
     setLiveBins(normalized);
-    setSelectedBin((current) => current ?? normalized[0] ?? fallbackBins[0]);
-  }, [rawBins, sensorsByNode]);
+    setSelectedBin((current) => normalized.find((bin) => bin.id === current?.id) ?? normalized[0] ?? null);
+  }, [rawBins, sensorRecords, collectionRecords, now]);
 
   // Adjust markers when multiple bins share identical coordinates to avoid overlapping clicks
   const adjustedLiveBins = useMemo(() => {
@@ -167,6 +273,7 @@ export function MapLocation() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'offline': return 'bg-gray-500';
       case 'critical': return 'bg-red-700';
       case 'full': return 'bg-red-500';
       case 'near-full': return 'bg-yellow-500';
@@ -176,6 +283,7 @@ export function MapLocation() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'offline': return <Badge className="bg-gray-500 text-white">Offline</Badge>;
       case 'critical': return <Badge className="bg-red-700 text-white">Critical</Badge>;
       case 'full': return <Badge variant="destructive">Full</Badge>;
       case 'near-full': return <Badge className="bg-yellow-500 text-white">Near Full</Badge>;
@@ -185,6 +293,7 @@ export function MapLocation() {
 
   const getMarkerColor = (status: string) => {
     switch (status) {
+      case 'offline': return '#6b7280';
       case 'critical': return '#b91c1c';
       case 'full': return '#ef4444';
       case 'near-full': return '#f59e0b';
@@ -235,6 +344,7 @@ export function MapLocation() {
                 scrollWheelZoom={true}
                 className="h-full w-full"
               >
+                <FitMapToBins bins={adjustedLiveBins || liveBins} />
                 <TileLayer
                   attribution='&copy; OpenStreetMap contributors'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -251,6 +361,9 @@ export function MapLocation() {
                       <div className="space-y-1">
                         <div className="font-bold">{bin.id}</div>
                         <div className="text-sm text-gray-600">{bin.location}</div>
+                        <div className="text-xs text-gray-500">{bin.lat.toFixed(6)}, {bin.lng.toFixed(6)}</div>
+                        {bin.locationSource && <div className="text-xs text-gray-500">Location source: {bin.locationSource}</div>}
+                        {bin.gpsValid === false && <div className="text-xs text-amber-700">GPS not fixed; showing reported coordinates</div>}
                         <div className="text-sm">Status: {bin.status}</div>
                         <div className="text-sm">Capacity: {bin.capacity}%</div>
                       </div>
@@ -260,6 +373,10 @@ export function MapLocation() {
               </MapContainer>
 
               <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-3 z-[400]">
+                <div className="flex items-center gap-2 text-sm mb-2">
+                  <div className="w-3 h-3 rounded-full bg-gray-600"></div>
+                  <span className="text-gray-900 font-semibold">Offline</span>
+                </div>
                 <div className="flex items-center gap-2 text-sm mb-2">
                   <div className="w-3 h-3 rounded-full bg-green-600"></div>
                   <span className="text-gray-900 font-semibold">Normal</span>
@@ -302,19 +419,28 @@ export function MapLocation() {
                     <span className="font-bold">{selectedBin.capacity}%</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Coordinates</span>
-                      <span className="text-sm font-mono">{selectedBin.lat}, {selectedBin.lng}</span>
+                    <span className="text-sm text-gray-600">Last data received</span>
+                    <span className="text-sm text-right">{selectedBin.lastDataReceived}</span>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Coordinates</span>
+                    <span className="text-sm font-mono">{selectedBin.lat.toFixed(6)}, {selectedBin.lng.toFixed(6)}</span>
+                  </div>
+                  {selectedBin.locationSource && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">Location source</span>
+                      <span className="text-sm">{selectedBin.locationSource}</span>
+                    </div>
+                  )}
+                  {selectedBin.gpsValid === false && (
+                    <p className="text-xs text-amber-700">GPS is not fixed; coordinates are the reported estimate.</p>
+                  )}
                   <div className="flex items-center gap-2 text-sm pt-2 border-t">
                     <Clock className="h-4 w-4 text-gray-500" />
                     <span className="text-gray-600">Last collection: {selectedBin.lastCollection}</span>
                   </div>
                 </div>
 
-                <button className="w-full mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 cursor-pointer">
-                  <Navigation className="h-4 w-4" />
-                  Get Directions
-                </button>
               </div>
             ) : (
               <div className="text-center text-gray-500 py-8">

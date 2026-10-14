@@ -5,9 +5,9 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { User, Phone, Mail, CheckCircle, Clock, Search, X, Users, Plus, Trash2 } from 'lucide-react';
+import { User, Phone, Mail, CheckCircle, Clock, Search, X, Users, Plus, Trash2, ClipboardList } from 'lucide-react';
 import { getUsers, createTeam, getTeams, removeTeam, addUsersToTeam } from '../../firebase';
-import { ref, push, set } from 'firebase/database';
+import { get, onValue, ref, push, set, remove, update } from 'firebase/database';
 import { db } from '../../firebase';
 
 interface WorkerData {
@@ -23,6 +23,7 @@ interface WorkerData {
 }
 
 const workersData: WorkerData[] = [];
+const isAdminRole = (role?: unknown) => ['admin', 'administrator'].includes(String(role ?? '').trim().toLowerCase());
 
 interface CreateTeamModalProps {
   isOpen: boolean;
@@ -42,10 +43,10 @@ interface AddUsersToTeamModalProps {
 interface TeamScheduleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  team: { id?: string; name: string } | null;
+  assignee: { id?: string; name: string; email?: string; type: 'team' | 'worker' } | null;
   bins: any[];
   onSchedule: (payload: {
-    teamName: string;
+    assignee: { id?: string; name: string; email?: string; type: 'team' | 'worker' };
     binId: string;
     date: string;
     taskType: 'maintenance' | 'collection';
@@ -53,7 +54,81 @@ interface TeamScheduleModalProps {
   }) => Promise<void>;
 }
 
-function TeamScheduleModal({ isOpen, onClose, team, bins, onSchedule }: TeamScheduleModalProps) {
+interface AssignedTaskModalProps {
+  assignee: { id?: string; name: string; type: 'team' | 'worker' } | null;
+  tasks: any[];
+  onClose: () => void;
+  onRemoveTask: (task: any) => void;
+}
+
+function AssignedTaskModal({ assignee, tasks, onClose, onRemoveTask }: AssignedTaskModalProps) {
+  if (!assignee) return null;
+
+  const assignedTasks = tasks.filter((task) => {
+    const assignedUserId = String(task.assignedUserId ?? '');
+    const assignedTeam = String(task.assignedTeam ?? '');
+    const assignedTo = String(task.assignedTo ?? '');
+    if (assignee.type === 'worker') {
+      return assignedUserId === assignee.id || (!assignedUserId && !assignedTeam && assignedTo === assignee.name);
+    }
+    return assignedTeam === assignee.name || (!assignedUserId && !assignedTeam && assignedTo === assignee.name);
+  }).sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
+      />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          className="relative max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-center justify-between bg-green-700 px-6 py-5 text-white">
+            <div>
+              <h2 className="text-xl font-bold">Assigned Tasks</h2>
+              <p className="text-sm text-green-100">{assignee.name} · {assignedTasks.length} task(s)</p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Close tasks" className="rounded-full p-2 hover:bg-white/15">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="max-h-[calc(85vh-84px)] space-y-3 overflow-y-auto p-5">
+            {assignedTasks.length === 0 ? (
+              <p className="py-10 text-center text-sm text-gray-500">No tasks assigned yet.</p>
+            ) : assignedTasks.map((task) => (
+              <div key={task.id} className="flex flex-col gap-3 border-b border-gray-200 pb-4 last:border-0 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-gray-900">{task.binId ?? task.bin ?? task.node ?? 'Bin not specified'}</span>
+                    <Badge className={task.status === 'completed' ? 'bg-green-600 text-white' : task.status === 'in-progress' ? 'bg-blue-600 text-white' : 'bg-yellow-500 text-white'}>
+                      {String(task.status ?? 'pending')}
+                    </Badge>
+                  </div>
+                  <p className="text-sm capitalize text-gray-600">{task.type ?? 'collection'} · Scheduled {task.scheduledDate ?? task.scheduledTime ?? 'date not set'}</p>
+                  {task.description && <p className="break-words text-sm text-gray-500">{task.description}</p>}
+                </div>
+                <Button type="button" variant="outline" onClick={() => onRemoveTask(task)} className="shrink-0 border-red-200 text-red-600 hover:bg-red-50">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Remove task
+                </Button>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}
+
+function TeamScheduleModal({ isOpen, onClose, assignee, bins, onSchedule }: TeamScheduleModalProps) {
   const [selectedBinId, setSelectedBinId] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [taskType, setTaskType] = useState<'maintenance' | 'collection'>('collection');
@@ -70,7 +145,11 @@ function TeamScheduleModal({ isOpen, onClose, team, bins, onSchedule }: TeamSche
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!team) return;
+    if (!assignee) return;
+    if (assignee.type === 'worker' && !assignee.id) {
+      alert('Please select a valid worker.');
+      return;
+    }
     if (!selectedBinId) {
       alert('Please select a bin.');
       return;
@@ -81,7 +160,7 @@ function TeamScheduleModal({ isOpen, onClose, team, bins, onSchedule }: TeamSche
     }
 
     await onSchedule({
-      teamName: team.name,
+      assignee,
       binId: selectedBinId,
       date: scheduledDate,
       taskType,
@@ -93,7 +172,7 @@ function TeamScheduleModal({ isOpen, onClose, team, bins, onSchedule }: TeamSche
 
   return (
     <AnimatePresence>
-      {isOpen && team && (
+      {isOpen && assignee && (
         <>
           <motion.div
             initial={{ opacity: 0 }}
@@ -113,8 +192,8 @@ function TeamScheduleModal({ isOpen, onClose, team, bins, onSchedule }: TeamSche
               <div className="bg-gradient-to-r from-green-600 to-green-700 px-8 py-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold text-white">Schedule Team Task</h2>
-                    <p className="text-green-100">{team.name}</p>
+                    <h2 className="text-2xl font-bold text-white">Schedule {assignee.type === 'worker' ? 'Worker' : 'Team'} Task</h2>
+                    <p className="text-green-100">{assignee.name}</p>
                   </div>
                   <button onClick={onClose} className="rounded-full p-2 bg-white/20 text-white hover:bg-white/30 transition-colors">
                     <X className="h-6 w-6" />
@@ -204,9 +283,8 @@ function AddUsersToTeamModal({ isOpen, onClose, team, workers, onAddUsers }: Add
   };
 
   const availableWorkers = workers.filter((worker) => {
-    const role = String(worker.role || '').toLowerCase();
     const alreadyInTeam = (team?.workerIds ?? []).includes(worker.id);
-    return worker.status === 'active' && role !== 'admin' && role !== 'administrator' && !alreadyInTeam;
+    return worker.status === 'active' && !isAdminRole(worker.role) && !alreadyInTeam;
   });
 
   const handleAddUsers = () => {
@@ -353,8 +431,7 @@ function CreateTeamModal({ isOpen, onClose, workers, onCreateTeam }: CreateTeamM
   };
 
   const availableWorkers = workers.filter((w) => {
-    const role = String(w.role || '').toLowerCase();
-    return w.status === 'active' && role !== 'admin' && role !== 'administrator';
+    return w.status === 'active' && !isAdminRole(w.role);
   });
 
   return (
@@ -417,7 +494,9 @@ function CreateTeamModal({ isOpen, onClose, workers, onCreateTeam }: CreateTeamM
                       Select Workers ({selectedWorkers.length} selected)
                     </Label>
                     <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
-                      {availableWorkers.map((worker) => (
+                      {availableWorkers.length === 0 ? (
+                        <div className="p-4 text-sm text-gray-500">No available workers to add to a new team.</div>
+                      ) : availableWorkers.map((worker) => (
                         <label
                           key={worker.id}
                           className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
@@ -477,16 +556,23 @@ export function Workers() {
   const [teamList, setTeamList] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateTeamModalOpen, setIsCreateTeamModalOpen] = useState(false);
-  const [selectedTeamForSchedule, setSelectedTeamForSchedule] = useState<any | null>(null);
+  const [selectedAssigneeForSchedule, setSelectedAssigneeForSchedule] = useState<any | null>(null);
+  const [selectedAssigneeForTasks, setSelectedAssigneeForTasks] = useState<any | null>(null);
   const [selectedTeamForAddMembers, setSelectedTeamForAddMembers] = useState<any | null>(null);
   const [bins, setBins] = useState<any[]>([]);
+  const [onlineStatuses, setOnlineStatuses] = useState<Record<string, string>>({});
+  const [taskList, setTaskList] = useState<any[]>([]);
 
   const filteredWorkers = workerList.filter(worker =>
     worker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (worker.team ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const assignedWorkerIds = new Set(teamList.flatMap((team) => {
+    const memberIds = team.workerIds ?? team.worker_ids;
+    return Array.isArray(memberIds) ? memberIds.map(String) : [];
+  }));
 
-  const activeWorkers = workerList.filter(w => w.status === 'active').length;
+  const onlineWorkers = workerList.filter(w => onlineStatuses[w.id] === 'online').length;
   const totalTasks = workerList.reduce((sum, w) => sum + w.tasksCompleted, 0);
 
   const loadWorkers = async () => {
@@ -496,7 +582,7 @@ export function Workers() {
         ? users
             .filter((user: any) => {
               const status = String(user.status || 'active').toLowerCase();
-              return status === 'active' || status === 'inactive';
+              return (status === 'active' || status === 'inactive') && !isAdminRole(user.role);
             })
             .map((user: any) => ({
               id: String(user.id),
@@ -606,7 +692,7 @@ export function Workers() {
       }
       await loadTeams();
       await loadWorkers();
-      setSelectedTeamForSchedule(null);
+      setSelectedAssigneeForSchedule(null);
       alert(`Team "${team.name}" removed successfully.`);
     } catch (error) {
       console.error('Failed to remove team:', error);
@@ -634,19 +720,27 @@ export function Workers() {
     }
   };
 
-  const handleScheduleTeamTask = async ({
-    teamName,
+  const handleScheduleTask = async ({
+    assignee,
     binId,
     date,
     taskType,
     description,
   }: {
-    teamName: string;
+    assignee: { id?: string; name: string; email?: string; type: 'team' | 'worker' };
     binId: string;
     date: string;
     taskType: 'maintenance' | 'collection';
     description?: string;
   }) => {
+    if (assignee.type === 'worker') {
+      const worker = workerList.find((item) => item.id === assignee.id);
+      if (!worker || isAdminRole(worker.role)) {
+        alert('Only worker accounts can be assigned individual tasks.');
+        return;
+      }
+    }
+
     try {
       const newTaskRef = push(ref(db, 'tasks'));
       const taskId = newTaskRef.key;
@@ -656,8 +750,14 @@ export function Workers() {
         binId,
         bin: binId,
         node: binId,
-        assignedTo: teamName,
-        assignedTeam: teamName,
+        assignedTo: assignee.name,
+        ...(assignee.type === 'worker'
+          ? {
+              assignedUserId: assignee.id,
+              assignedUserName: assignee.name,
+              assignedUserEmail: assignee.email || '',
+            }
+          : { assignedTeam: assignee.name }),
         scheduledDate: date,
         description: description || '',
         status: 'pending',
@@ -670,7 +770,7 @@ export function Workers() {
         await set(ref(db, `collections/${taskId}`), {
           ...taskRecord,
           status: 'pending',
-          assignedTo: teamName,
+          assignedTo: assignee.name,
           scheduledTime: date,
           createdAt: taskRecord.createdAt,
         });
@@ -679,11 +779,50 @@ export function Workers() {
         await set(ref(db, `bins/${binId}/scheduledDate`), date);
       }
 
-      await set(ref(db, `bins/${binId}/assignedTo`), teamName);
-      alert(`Task scheduled for team "${teamName}" on bin ${binId}.`);
+      await set(ref(db, `bins/${binId}/assignedTo`), assignee.name);
+      alert(`Task scheduled for ${assignee.type} "${assignee.name}" on bin ${binId}.`);
     } catch (error) {
-      console.error('Failed to schedule team task:', error);
+      console.error('Failed to schedule task:', error);
       alert('Unable to save this schedule. Please try again.');
+    }
+  };
+
+  const handleRemoveAssignedTask = async (task: any) => {
+    const taskId = String(task.id ?? task.taskId ?? task.task_id ?? '');
+    if (!taskId) {
+      alert('This task has no valid ID and cannot be removed.');
+      return;
+    }
+    if (!window.confirm(`Remove the ${task.type ?? 'collection'} task for ${task.binId ?? task.bin ?? 'this bin'}?`)) return;
+
+    try {
+      await Promise.all([
+        remove(ref(db, `tasks/${taskId}`)),
+        remove(ref(db, `collections/${taskId}`)),
+      ]);
+
+      const binId = String(task.binId ?? task.bin ?? task.bin_id ?? task.node ?? '');
+      if (binId) {
+        const binSnapshot = await get(ref(db, `bins/${binId}`));
+        const bin = binSnapshot.val();
+        if (bin && String(bin.assignedTo ?? '') === String(task.assignedTo ?? '')) {
+          const binUpdates: Record<string, null> = { [`bins/${binId}/assignedTo`]: null };
+          const scheduledDate = String(task.scheduledDate ?? task.scheduledTime ?? '');
+          if (scheduledDate && String(bin.collectionScheduledDate ?? '') === scheduledDate) {
+            binUpdates[`bins/${binId}/collectionScheduledDate`] = null;
+          }
+          if (scheduledDate && String(bin.scheduledDate ?? '') === scheduledDate) {
+            binUpdates[`bins/${binId}/scheduledDate`] = null;
+          }
+          await update(ref(db), binUpdates);
+        }
+      }
+
+      setTaskList((previous) => previous.filter((item) => String(item.id ?? item.taskId ?? item.task_id) !== taskId));
+      alert('Assigned task removed.');
+    } catch (error) {
+      console.error('Failed to remove assigned task:', error);
+      alert('Unable to remove this task. Please try again.');
     }
   };
 
@@ -692,6 +831,22 @@ export function Workers() {
     loadTeams();
     loadTasks();
   }, []);
+
+  useEffect(() => onValue(ref(db, 'users'), (snapshot) => {
+    const data = snapshot.val() ?? {};
+    setOnlineStatuses(Object.fromEntries(Object.entries(data).map(([id, value]: [string, any]) => [
+      id,
+      String(value?.onlineStatus ?? 'offline').toLowerCase(),
+    ])));
+  }, (error) => console.error('Failed to subscribe to worker presence:', error)), []);
+
+  useEffect(() => onValue(ref(db, 'tasks'), (snapshot) => {
+    const data = snapshot.val() ?? {};
+    setTaskList(Object.entries(data).map(([id, value]) => ({
+      id,
+      ...(typeof value === 'object' && value !== null ? value : {}),
+    })));
+  }, (error) => console.error('Failed to subscribe to assigned tasks:', error)), []);
 
   useEffect(() => {
     const fetchBins = async () => {
@@ -757,8 +912,8 @@ export function Workers() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-900 font-semibold">Active Today</p>
-                <p className="text-2xl font-bold text-gray-900">{activeWorkers}</p>
+                <p className="text-sm text-gray-900 font-semibold">Online Now</p>
+                <p className="text-2xl font-bold text-gray-900">{onlineWorkers}</p>
               </div>
               <CheckCircle className="h-8 w-8 text-green-500" />
             </div>
@@ -792,8 +947,8 @@ export function Workers() {
                     <p className="text-sm text-gray-900 font-medium">{worker.team}</p>
                   </div>
                 </div>
-                <Badge className={worker.status === 'active' ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'}>
-                  {worker.status === 'active' ? 'Active' : 'Off Duty'}
+                <Badge className={onlineStatuses[worker.id] === 'online' ? 'bg-emerald-700 text-white' : 'bg-gray-500 text-white'}>
+                  {onlineStatuses[worker.id] === 'online' ? 'Online' : 'Offline'}
                 </Badge>
               </div>
               <div className="space-y-2 text-sm">
@@ -809,6 +964,27 @@ export function Workers() {
                   <span className="text-gray-600">Task</span>
                   <span className="font-bold">{worker.tasksCompleted} / {worker.tasksToday}</span>
                 </div>
+                <Button
+                  type="button"
+                  onClick={() => setSelectedAssigneeForSchedule({
+                    id: worker.id,
+                    name: worker.name,
+                    email: worker.email,
+                    type: 'worker',
+                  })}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                >
+                  Schedule Task
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSelectedAssigneeForTasks({ id: worker.id, name: worker.name, type: 'worker' })}
+                  className="w-full"
+                >
+                  <ClipboardList className="mr-2 h-4 w-4" />
+                  View Tasks
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -818,7 +994,7 @@ export function Workers() {
       <CreateTeamModal
         isOpen={isCreateTeamModalOpen}
         onClose={() => setIsCreateTeamModalOpen(false)}
-        workers={workerList}
+        workers={workerList.filter((worker) => !assignedWorkerIds.has(worker.id))}
         onCreateTeam={handleCreateTeam}
       />
       <AddUsersToTeamModal
@@ -850,7 +1026,16 @@ export function Workers() {
                       );
                     })}
                   </div>
-                  <div className="flex gap-2 mt-4">
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setSelectedAssigneeForTasks({ name: team.name, type: 'team' })}
+                      className="border-gray-300"
+                    >
+                      <ClipboardList className="mr-2 h-4 w-4" />
+                      View Tasks
+                    </Button>
                     <Button
                       type="button"
                       onClick={(e) => {
@@ -865,7 +1050,7 @@ export function Workers() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedTeamForSchedule(team);
+                        setSelectedAssigneeForSchedule({ ...team, type: 'team' });
                       }}
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                     >
@@ -891,11 +1076,17 @@ export function Workers() {
       )}
 
       <TeamScheduleModal
-        isOpen={!!selectedTeamForSchedule}
-        onClose={() => setSelectedTeamForSchedule(null)}
-        team={selectedTeamForSchedule}
+        isOpen={!!selectedAssigneeForSchedule}
+        onClose={() => setSelectedAssigneeForSchedule(null)}
+        assignee={selectedAssigneeForSchedule}
         bins={bins}
-        onSchedule={handleScheduleTeamTask}
+        onSchedule={handleScheduleTask}
+      />
+      <AssignedTaskModal
+        assignee={selectedAssigneeForTasks}
+        tasks={taskList}
+        onClose={() => setSelectedAssigneeForTasks(null)}
+        onRemoveTask={handleRemoveAssignedTask}
       />
     </div>
   );

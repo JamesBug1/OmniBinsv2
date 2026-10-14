@@ -10,10 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, Clock, MapPin, Droplet } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
-import { db } from '../../firebase';
+import { db, subscribeSensorData } from '../../firebase';
 import { normalizeSensorRecord } from '../../lib/gasConversion';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
+const HIGH_FILL_THRESHOLD_PERCENT = 80;
+const BIN_FULL_WEIGHT_KG = 50;
 
 const toNumber = (value: unknown, fallback = 0) => {
   const num = Number(value);
@@ -31,6 +33,63 @@ const parseTime = (value: unknown) => {
   return 0;
 };
 
+const getFillPercent = (record: any) => {
+  const explicitCapacity = record.capacity ?? record.fillLevel ?? record.current_fill;
+  const value = explicitCapacity == null
+    ? (toNumber(record.weight ?? record.weight_kg ?? record.wasteWeight ?? record.waste) / BIN_FULL_WEIGHT_KG) * 100
+    : toNumber(explicitCapacity);
+  return Math.max(0, Math.min(100, value));
+};
+
+const hasGasReading = (record: any) => [
+  record.nh3,
+  record.ch4,
+  record.mq135,
+  record.mq135_ppm,
+  record.mq_135,
+  record.mq4,
+  record.mq4_ppm,
+  record.mq_4,
+].some((value) => value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value)));
+
+const getTimestampMs = (value: unknown) => {
+  const timestamp = parseTime(value);
+  return timestamp >= 1e9 && timestamp < 1e12 ? timestamp * 1000 : timestamp;
+};
+
+const getResponseMinutes = (collection: any) => {
+  const recordedMinutes = Number(
+    collection.responseMinutes ?? collection.response_time ?? collection.responseTime ?? collection.minutes
+  );
+  if (Number.isFinite(recordedMinutes) && recordedMinutes > 0) return recordedMinutes;
+
+  const startedAt = parseTime(collection.createdAt ?? collection.created_at);
+  if (!startedAt) return 0;
+
+  const finishedAt = parseTime(collection.finishedAt);
+  if (finishedAt > startedAt) return (finishedAt - startedAt) / 60000;
+
+  const completedAt = collection.completedAt;
+  if (typeof completedAt !== 'string') return 0;
+  const clockTime = completedAt.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!clockTime) {
+    const completedTimestamp = parseTime(completedAt);
+    return completedTimestamp > startedAt ? (completedTimestamp - startedAt) / 60000 : 0;
+  }
+
+  let hours = Number(clockTime[1]);
+  const minutes = Number(clockTime[2]);
+  const seconds = Number(clockTime[3] ?? 0);
+  const meridiem = clockTime[4]?.toUpperCase();
+  if (minutes > 59 || seconds > 59 || (meridiem ? hours < 1 || hours > 12 : hours > 23)) return 0;
+  if (meridiem) hours = (hours % 12) + (meridiem === 'PM' ? 12 : 0);
+
+  const completedDate = new Date(startedAt);
+  completedDate.setHours(hours, minutes, seconds, 0);
+  if (completedDate.getTime() < startedAt) completedDate.setDate(completedDate.getDate() + 1);
+  return (completedDate.getTime() - startedAt) / 60000;
+};
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -44,6 +103,7 @@ export function Analytics() {
   const [weeklyTrend, setWeeklyTrend] = useState<any[]>([]);
   const [topBins, setTopBins] = useState<any[]>([]);
   const [areaData, setAreaData] = useState<any[]>([]);
+  const [registeredBins, setRegisteredBins] = useState<any[]>([]);
   const [responseTime, setResponseTime] = useState<any[]>([
     { name: 'Within 30 min', value: 0 },
     { name: '30-60 min', value: 0 },
@@ -52,9 +112,16 @@ export function Analytics() {
   ]);
 
   useEffect(() => {
+    return onValue(ref(db, 'bins'), (snapshot) => {
+      const data = snapshot.val() ?? {};
+      setRegisteredBins(Object.entries(data)
+        .map(([id, value]) => ({ id, ...(typeof value === 'object' && value !== null ? value : {}) }))
+        .filter((item) => item && typeof item === 'object'));
+    });
+  }, []);
+
+  useEffect(() => {
     const collectionsRef = ref(db, 'collections');
-    const sensorRef = ref(db, 'sensor_data');
-    const binsRef = ref(db, 'bins');
 
     const unsubCollections = onValue(collectionsRef, (snapshot) => {
       const data = snapshot.val() ?? {};
@@ -71,10 +138,7 @@ export function Analytics() {
       };
 
       const responseTimes = collections
-        .map((item) => {
-          const value = Number(item.responseMinutes ?? item.response_time ?? item.responseTime ?? item.minutes ?? 0);
-          return Number.isFinite(value) ? value : 0;
-        })
+        .map(getResponseMinutes)
         .filter((value) => value > 0);
 
       responseTimes.forEach((minutes) => {
@@ -113,11 +177,38 @@ export function Analytics() {
       setWeeklyTrend(trend);
     });
 
-    const unsubSensors = onValue(sensorRef, (snapshot) => {
-      const data = snapshot.val() ?? {};
-      const results = Object.entries(data)
-        .map(([key, value]) => normalizeSensorRecord(key, value))
-        .filter((item) => item && typeof item === 'object');
+    const unsubSensors = subscribeSensorData((sensorRecords) => {
+      const dedupedByNode = new Map<string, any>();
+      const readingsBySensor = new Map<string, Array<{ timestamp: number; fillPercent: number; id: string }>>();
+      sensorRecords.forEach((item) => {
+        const normalized = {
+          ...normalizeSensorRecord(item.id, item),
+          id: item.id,
+          branch: item.branch,
+          hasGasReading: hasGasReading(item),
+        };
+        const key = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown').trim();
+        const prev = dedupedByNode.get(key);
+        if (!prev || toNumber(normalized.timestamp) >= toNumber(prev.timestamp)) {
+          dedupedByNode.set(key, normalized);
+        }
+
+        const rawWeight = item.weight ?? item.weight_kg ?? item.wasteWeight ?? item.waste;
+        const rawCapacity = item.capacity ?? item.fillLevel ?? item.current_fill;
+        const timestamp = getTimestampMs(item.timestamp ?? item.time ?? item.updatedAt);
+        if (timestamp <= 0 || (rawWeight == null && rawCapacity == null)) return;
+
+        const sensorId = String(normalized.node ?? item.id ?? normalized.location ?? 'Unknown sensor').trim();
+        const readings = readingsBySensor.get(sensorId) ?? [];
+        readings.push({
+          timestamp,
+          fillPercent: getFillPercent(item),
+          id: String(item.id ?? ''),
+        });
+        readingsBySensor.set(sensorId, readings);
+      });
+
+      const results = Array.from(dedupedByNode.values());
 
       const latestByBin = new Map<string, any>();
       results.forEach((item) => {
@@ -132,17 +223,31 @@ export function Analytics() {
       const highRiskAreas = latest.filter((item) => item.weight >= 60 || item.nh3 > 25 || item.ch4 > 50).length;
       const neutralizationUsage = latest.filter((item) => item.nh3 > 35 || item.ch4 > 70).length;
 
-      const top = latest
-        .map((item) => ({
-          bin: String(item.node ?? item.location ?? item.id ?? 'Unknown'),
-          fills: Math.max(0, Math.min(100, Math.round(item.weight || item.capacity || 0))),
-        }))
-        .sort((a, b) => b.fills - a.fills)
+      const top = Array.from(readingsBySensor, ([sensor, readings]) => {
+        readings.sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
+        const uniqueReadings = readings.filter((reading, index) =>
+          index === readings.length - 1 || reading.timestamp !== readings[index + 1].timestamp
+        );
+        let previousFillPercent: number | null = null;
+        let fillEvents = 0;
+
+        uniqueReadings.forEach((reading) => {
+          if (previousFillPercent !== null && previousFillPercent < HIGH_FILL_THRESHOLD_PERCENT && reading.fillPercent >= HIGH_FILL_THRESHOLD_PERCENT) {
+            fillEvents += 1;
+          }
+          previousFillPercent = reading.fillPercent;
+        });
+
+        return { bin: sensor, fillEvents };
+      })
+        .filter((item) => item.fillEvents > 0)
+        .sort((a, b) => b.fillEvents - a.fillEvents)
         .slice(0, 5);
 
       const areaMap = new Map<string, { area: string; avgRotIndex: number; count: number }>();
       latest.forEach((item) => {
-        const area = String(item.location ?? item.node ?? 'Unknown');
+        if (!item.hasGasReading || !(item.nh3 > 25 || item.ch4 > 50)) return;
+        const area = String(item.node ?? item.location ?? item.id ?? 'Unknown');
         const avgRotIndex = ((toNumber(item.nh3) + toNumber(item.ch4)) / 2) || 0;
         const existing = areaMap.get(area) ?? { area, avgRotIndex: 0, count: 0 };
         existing.avgRotIndex += avgRotIndex;
@@ -164,33 +269,11 @@ export function Analytics() {
       setAreaData(areas);
     });
 
-    const unsubBins = onValue(binsRef, (snapshot) => {
-      const data = snapshot.val() ?? {};
-      const bins = Object.entries(data)
-        .map(([key, value]) => ({ id: key, ...(typeof value === 'object' && value !== null ? value : {}) }))
-        .filter((item) => item && typeof item === 'object');
-
-      if (bins.length > 0) {
-        const nextTop = bins
-          .map((bin) => ({
-            bin: String(bin.id ?? bin.location ?? 'Unknown'),
-            fills: Math.max(0, Math.min(100, Number(bin.capacity ?? bin.current_fill ?? bin.fillLevel ?? 0))),
-          }))
-          .sort((a, b) => b.fills - a.fills)
-          .slice(0, 5);
-
-        if (nextTop.length > 0) {
-          setTopBins(nextTop);
-        }
-      }
-    });
-
     return () => {
       unsubCollections();
       unsubSensors();
-      unsubBins();
     };
-  }, []);
+  }, [registeredBins]);
 
   const summaryCards = [
     {
@@ -222,6 +305,7 @@ export function Analytics() {
       icon: Droplet,
     },
   ];
+  const hasResponseTimeData = responseTime.some((bucket) => bucket.value > 0);
 
   return (
     <div className="space-y-6">
@@ -271,25 +355,30 @@ export function Analytics() {
             <CardTitle>Collection Response Time</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center justify-center">
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={responseTime}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {responseTime.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {hasResponseTimeData ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <PieChart>
+                  <Pie
+                    data={responseTime}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {responseTime.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="flex h-[250px] items-center justify-center text-sm text-gray-500">
+                No collection response-time data yet
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -297,35 +386,47 @@ export function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Most Frequently Filled Bins</CardTitle>
+            <CardTitle>Most Frequent High-Fill Events by Sensor</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={topBins} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" />
-                <YAxis type="category" dataKey="bin" />
-                <Tooltip />
-                <Bar dataKey="fills" fill="#10b981" name="Fill %" />
-              </BarChart>
-            </ResponsiveContainer>
+            {topBins.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={topBins} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" allowDecimals={false} />
+                  <YAxis type="category" dataKey="bin" />
+                  <Tooltip formatter={(value: number) => [value, 'High-fill events (80%+)']} />
+                  <Bar dataKey="fillEvents" fill="#10b981" name="High-fill events (80%+)" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="flex h-[250px] items-center justify-center text-sm text-gray-500">
+                No repeated high-fill events recorded yet
+              </p>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Areas with Highest Rot Index</CardTitle>
+            <CardTitle>Bins with Highest Rot Index</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={areaData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="area" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="avgRotIndex" fill="#ef4444" name="Avg Rot Index" />
-              </BarChart>
-            </ResponsiveContainer>
+            {areaData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={areaData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="area" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="avgRotIndex" fill="#ef4444" name="Avg Rot Index" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="flex h-[250px] items-center justify-center text-sm text-gray-500">
+                No sensors currently meet the high Rot Index gas thresholds
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -5,6 +5,26 @@
       ".write": "auth != null",
       ".indexOn": ["timestamp"]
     },
+    "sensor_data1": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp"]
+    },
+    "sensor_data2": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp"]
+    },
+    "sensor_data3": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp"]
+    },
+    "sensor_data4": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp"]
+    },
     "users": {
       ".read": "auth != null",
       ".write": "auth != null"

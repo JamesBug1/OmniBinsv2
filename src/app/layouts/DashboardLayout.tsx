@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router';
 import { 
   LayoutDashboard, 
@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { ProfileModal, UserData } from '../components/ProfileModal';
-import { getUsers, updateUserStatus } from '../../firebase';
+import { auth, getUserByEmail, updateUserStatus } from '../../firebase';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -44,8 +44,8 @@ export function DashboardLayout({ onLogout }: DashboardLayoutProps) {
   const [userData, setUserData] = useState<UserData>({
     id: 1,
     name: 'Admin User',
-    email: 'guesswhoami.true@gmail.com',
-    phone: '+1 (555) 123-4567',
+    email: auth.currentUser?.email || '',
+    phone: '',
     role: 'admin',
     department: 'Administration',
     joinedDate: 'January 2024',
@@ -53,6 +53,39 @@ export function DashboardLayout({ onLogout }: DashboardLayoutProps) {
     lastLogin: 'Just now'
   });
   const location = useLocation();
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    const loadCurrentUserProfile = async () => {
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser?.email) return;
+
+      try {
+        const profile = await getUserByEmail(firebaseUser.email);
+        if (!isCurrent) return;
+
+        setUserData((current) => ({
+          ...current,
+          name: profile?.name || firebaseUser.displayName || 'Admin User',
+          email: firebaseUser.email || '',
+          phone: profile?.phone || '',
+          role: profile?.role || 'admin',
+          department: profile?.department || profile?.team || 'Administration',
+          joinedDate: profile?.joinedDate || current.joinedDate,
+          status: profile?.status || 'active',
+          lastLogin: profile?.lastLogin || 'Just now',
+        }));
+      } catch (error) {
+        console.error('Failed to load current user profile:', error);
+      }
+    };
+
+    void loadCurrentUserProfile();
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   const isActive = (href: string) => {
     if (href === '/') {
@@ -66,8 +99,7 @@ export function DashboardLayout({ onLogout }: DashboardLayoutProps) {
     // Try to persist current user's profile if it exists in DB
     (async () => {
       try {
-        const users = await getUsers();
-        const found = Array.isArray(users) ? users.find(u => u.email === updatedData.email) : null;
+        const found = await getUserByEmail(auth.currentUser?.email);
         if (found && found.id) {
           await updateUserStatus(found.id, {
             name: updatedData.name,
