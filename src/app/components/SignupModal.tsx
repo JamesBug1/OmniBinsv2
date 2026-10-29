@@ -3,18 +3,16 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Mail, Lock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { createUserWithEmailAndPassword, sendEmailVerification, fetchSignInMethodsForEmail } from 'firebase/auth';
-import { auth, addUser, getIdToken } from '../../firebase';
+import { createPendingAuthAccount, getExistingAccountApprovalStatus } from '../../firebase';
 import TermsModal from './TermsModal';
 import VerificationModal from './VerificationModal';
 
 interface SignupModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSignupSuccess?: (token?: string) => void;
 }
 
-export function SignupModal({ isOpen, onClose, onSignupSuccess }: SignupModalProps) {
+export function SignupModal({ isOpen, onClose }: SignupModalProps) {
   const [isTermsOpen, setIsTermsOpen] = useState(false);
   const [isVerificationOpen, setIsVerificationOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -37,27 +35,12 @@ export function SignupModal({ isOpen, onClose, onSignupSuccess }: SignupModalPro
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError('Passwords do not match.');
       return;
     }
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters long.');
-      return;
-    }
-
-    if (!/[A-Z]/.test(password)) {
-      setError('Password must contain at least one uppercase letter.');
-      return;
-    }
-
-    if (!/[!@#$%^&*(),.?":{}|<>_\-\\[\]/`~+=;']/ .test(password)) {
-      setError('Password must contain at least one special character.');
-      return;
-    }
-    
-    if (!agreeTerms) {
-      setError('You must agree to the Terms & Conditions.');
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[!@#$%^&*(),.?":{}|<>_\-\\[\]/`~+=;']/ .test(password)) {
+      setError('Password must be at least 8 characters and include an uppercase letter, a number, and a special character.');
       return;
     }
 
@@ -68,46 +51,21 @@ export function SignupModal({ isOpen, onClose, onSignupSuccess }: SignupModalPro
 
     setIsLoading(true);
     try {
-      // check whether email is already registered
-      const methods = await fetchSignInMethodsForEmail(auth, email).catch(() => []);
-      if (methods && methods.length > 0) {
-        if (methods.includes('password')) {
-          setError('An account with this email already exists. Please sign in or reset your password.');
-        } else {
-          setError(`This email is already registered via ${methods.join(', ')}. Please sign in with that provider.`);
-        }
-        setIsLoading(false);
+      const result = await createPendingAuthAccount({ name: 'New User', email, password, team: 'Operations' });
+      if (!result.verificationEmailSent) {
+        setError('Your account is saved and awaiting approval, but the verification email could not be sent. Contact an administrator for help.');
         return;
       }
-
-      const userCred = await createUserWithEmailAndPassword(auth, email, password);
-      // store registration as pending until admin approval
-      await addUser({ name: 'New User', email, team: 'Operations', role: 'staff', status: 'pending' });
-      // send verification email
-      if (userCred.user) {
-        const actionCodeSettings = {
-          // Redirect back to the app after email verification
-          url: window.location.origin,
-          // This must be true for email link sign-in; false for action code via web
-          handleCodeInApp: false,
-        } as any;
-        try {
-          await sendEmailVerification(userCred.user, actionCodeSettings);
-          console.log('Verification email sent to', userCred.user.email);
-        } catch (sendErr) {
-          console.error('sendEmailVerification failed', sendErr);
-        }
-      }
-      // keep the user signed in but require email verification and admin approval before access
       setIsVerificationOpen(true);
       setIsApprovalMessageOpen(true);
     } catch (err: any) {
       console.error('Signup failed', err);
-      // map common Firebase Auth error codes to friendly messages
       const code = err?.code || '';
       switch (code) {
         case 'auth/email-already-in-use':
-          setError('An account with this email already exists. Try signing in or resetting your password.');
+          setError(await getExistingAccountApprovalStatus(email, password) === 'pending'
+            ? 'This account is waiting for approval. Please wait for the approval email.'
+            : 'This account is already registered.');
           break;
         case 'auth/invalid-email':
           setError('Please enter a valid email address.');
@@ -170,19 +128,19 @@ export function SignupModal({ isOpen, onClose, onSignupSuccess }: SignupModalPro
                   <label htmlFor="agreeTerms" className="text-sm text-gray-600">I agree to the <button type="button" onClick={() => setIsTermsOpen(true)} className="text-green-600 underline">Terms &amp; Conditions</button></label>
                 </div>
                 <TermsModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
-                <VerificationModal isOpen={isVerificationOpen} onClose={() => setIsVerificationOpen(false)} approvalStatus="pending" />
+                <VerificationModal isOpen={isVerificationOpen} onClose={() => setIsVerificationOpen(false)} approvalStatus="pending" email={email} />
 
                 <AnimatePresence>
                   {isApprovalMessageOpen && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                      Please wait for the approval email. Once approved, a confirmation will be sent to your email.
+                      Your account is saved and waiting for admin approval. Verify your email while you wait.
                     </motion.div>
                   )}
                 </AnimatePresence>
 
                 {error && <p className="text-sm text-red-600">{error}</p>}
 
-                <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white" disabled={isLoading}>{isLoading ? 'Creating account...' : 'Sign up'}</Button>
+                <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white" disabled={isLoading}>{isLoading ? 'Submitting request...' : 'Sign up'}</Button>
               </form>
             </motion.div>
           </div>

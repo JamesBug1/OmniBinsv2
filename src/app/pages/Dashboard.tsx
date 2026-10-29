@@ -3,7 +3,6 @@ import { motion } from 'motion/react';
 import { ref, onValue } from 'firebase/database';
 import { db, subscribeAlerts, subscribeBins, subscribeReports, subscribeSensorData } from '../../firebase';
 import { normalizeSensorRecord } from '../../lib/gasConversion';
-import { isSensorLinkedToRegisteredBin } from '../../lib/binSensorLink';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Trash2, AlertCircle, Wind, Droplet } from 'lucide-react';
@@ -35,6 +34,12 @@ function getCompletionTimestamp(collection: any): number | null {
   return values.map(parseTimestamp).find((timestamp) => timestamp !== null) ?? null;
 }
 
+function isNeutralizerOn(record: any): boolean {
+  const value = record.neutralizer ?? record.neutralizer_status ?? record.mist ?? record.mist_status ?? record.mist_on ?? record.mistOn;
+  if (typeof value === 'boolean') return value;
+  return ['ON', 'TRUE', '1', 'ACTIVE', 'MISTING'].includes(String(value ?? '').trim().toUpperCase());
+}
+
 function buildWeeklyCollections(collections: any[]) {
   const completed = collections.filter((collection) => String(collection.status ?? '').toLowerCase() === 'completed');
 
@@ -61,8 +66,8 @@ export function Dashboard() {
   const [stats, setStats] = useState({
     totalBins: 0,
     fullBins: 12,
-    highRotIndex: 8,
-    activeNeutralization: 3,
+    highRotIndex: 0,
+    activeNeutralization: 0,
   });
   const [gasLevels, setGasLevels] = useState<any[]>([]);
   const [recentAlerts, setRecentAlerts] = useState<any[]>([]);
@@ -81,8 +86,13 @@ export function Dashboard() {
     const unsubscribe = subscribeSensorData((sensorRecords) => {
       const dedupedByNode = new Map<string, any>();
       sensorRecords.forEach((item) => {
-        const normalized = { ...normalizeSensorRecord(item.id, item), id: item.id, branch: item.branch };
-        if (!isSensorLinkedToRegisteredBin(normalized, registeredBins)) return;
+        const normalized = {
+          ...normalizeSensorRecord(item.id, item),
+          id: item.id,
+          branch: item.branch,
+          mq135Adc: Number(item.mq135_adc ?? item.mq_135_adc ?? item.mq135 ?? item.mq_135 ?? item['MQ-135'] ?? 0) || 0,
+          mq4Adc: Number(item.mq4_adc ?? item.mq_4_adc ?? item.mq4 ?? item.mq_4 ?? item['MQ-4'] ?? 0) || 0,
+        };
         const key = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown-bin').trim();
         const existing = dedupedByNode.get(key);
         if (!existing || (normalized.timestamp ?? 0) >= (existing.timestamp ?? 0)) {
@@ -103,20 +113,16 @@ export function Dashboard() {
 
       const latestBinRecords = Array.from(latestByBin.values());
       const fullBins = latestBinRecords.filter((rec) => rec.weight >= 80).length;
-      const highRotIndex = latestBinRecords.filter((rec) => rec.nh3 > 25 || rec.ch4 > 50).length;
-      const activeNeutralization = latestBinRecords.filter((rec) => rec.nh3 > 35 || rec.ch4 > 70).length;
+      const highRotIndex = latestBinRecords.filter((rec) => rec.mq135Adc > 1500 || rec.mq4Adc > 1200).length;
+      const activeNeutralization = sensorRecords.filter(isNeutralizerOn).length;
 
       const points = latestBinRecords
         .slice()
-        .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
-        .slice(-24)
+        .sort((a, b) => ((b.nh3 + b.ch4) / 2) - ((a.nh3 + a.ch4) / 2))
+        .slice(0, 6)
         .map((rec) => ({
         sensor: String(rec.node ?? rec.location ?? rec.id ?? 'Unknown sensor'),
-        time: rec.timestamp
-          ? new Date(rec.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-          : 'Time unavailable',
-        nh3: rec.nh3,
-        ch4: rec.ch4,
+        rotIndex: Number(((rec.nh3 + rec.ch4) / 2).toFixed(1)),
       }));
 
       setStats((prev) => ({
@@ -203,8 +209,8 @@ export function Dashboard() {
         {[
           { title: 'Total Smart Bins', value: stats.totalBins, desc: 'Deployed across the area', icon: Trash2, iconColor: 'text-green-600' },
           { title: 'Full / Near Full', value: stats.fullBins, desc: 'Require immediate collection', icon: AlertCircle, iconColor: 'text-red-600' },
-          { title: 'High Rot Index', value: stats.highRotIndex, desc: 'Above threshold level', icon: Wind, iconColor: 'text-orange-600' },
-          { title: 'Active Neutralization', value: stats.activeNeutralization, desc: 'Odor control events', icon: Droplet, iconColor: 'text-blue-600' },
+          { title: 'High Rot Index', value: stats.highRotIndex, desc: 'MQ-135 > 1500 or MQ-4 > 1200 ADC', icon: Wind, iconColor: 'text-orange-600' },
+          { title: 'Active Neutralization', value: stats.activeNeutralization, desc: 'Sensor readings with mist ON', icon: Droplet, iconColor: 'text-blue-600' },
         ].map((stat, idx) => (
           <motion.div key={stat.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: idx * 0.1 }}>
             <Card>
@@ -242,22 +248,24 @@ export function Dashboard() {
         </Card>
       </motion.div>
 
-      {/* Gas Levels Chart */}
+      {/* Highest Rot Index Chart */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.5 }}>
         <Card>
-          <CardHeader><CardTitle>Latest Gas Readings by Sensor</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Bins with Highest Rot Index</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={gasLevels} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" />
-                <YAxis type="category" dataKey="sensor" width={90} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="nh3" fill="#f59e0b" name="NH₃ (Ammonia) (ppm)" />
-                <Bar dataKey="ch4" fill="#3b82f6" name="CH₄ (Methane) (ppm)" />
-              </BarChart>
-            </ResponsiveContainer>
+            {gasLevels.length > 0 ? (
+              <ResponsiveContainer width="100%" height={350}>
+                <BarChart data={gasLevels} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" />
+                  <YAxis type="category" dataKey="sensor" width={90} />
+                  <Tooltip formatter={(value: number) => [`${value.toFixed(1)} ppm`, 'ROT Index']} />
+                  <Bar dataKey="rotIndex" fill="#ef4444" name="ROT Index" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="flex h-[350px] items-center justify-center text-sm text-gray-500">No sensor readings available yet.</p>
+            )}
           </CardContent>
         </Card>
       </motion.div>

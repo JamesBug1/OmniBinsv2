@@ -1,21 +1,18 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { Button } from './ui/button';
-import { auth } from '../../firebase';
 
 interface VerificationModalProps {
   isOpen: boolean;
   onClose: () => void;
   approvalStatus?: 'pending' | 'approved';
+  email?: string;
 }
 
-export function VerificationModal({ isOpen, onClose, approvalStatus = 'pending' }: VerificationModalProps) {
-  const initialEmail = auth.currentUser?.email || '';
+export function VerificationModal({ isOpen, onClose, approvalStatus = 'pending', email = '' }: VerificationModalProps) {
   const message = approvalStatus === 'approved'
     ? 'Your email has been verified and your account has been approved. You can now continue.'
-    : initialEmail
-      ? `Your account is pending approval. Please wait for the approval email. Once approved, a confirmation will be sent to ${initialEmail}.`
-      : 'Your account is pending approval. Please wait for the approval email. Once approved, a confirmation will be sent to your email.';
+    : `Your account has been created and is waiting for admin approval. Verify your email${email ? ` at ${email}` : ''} while you wait. App access will be available after approval.`;
 
   return (
     <AnimatePresence>

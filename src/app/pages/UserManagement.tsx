@@ -13,7 +13,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Shield, User, Users, Settings, X, Search, Edit2, Save, Mail, Phone, Calendar, Trash2, Upload, Clock } from 'lucide-react';
-import { addUser, addUsersToTeam, createUserWithoutChangingSession, getTeams, getUsers, removeUser, signOutUserCreationSession, updateUserStatus, db } from '../../firebase';
+import { addUser, addUsersToTeam, approveRegistrationRequest, createUserWithoutChangingSession, getTeams, getUsers, removeRegistrationRequest, removeUser, signOutUserCreationSession, subscribeRegistrationRequests, updateUserStatus, db } from '../../firebase';
 import { ref, get, onValue, update as firebaseUpdate } from 'firebase/database';
 import { sendEmailVerification } from 'firebase/auth';
 // ============================================================================
@@ -40,6 +40,15 @@ function ApprovalModal({ isOpen, onClose, user, onApproved }: { isOpen: boolean;
 
   const handleApprove = async () => {
     try {
+      if (user.isRegistrationRequest) {
+        const result = await approveRegistrationRequest(user.id, role, reason);
+        if (result.emailWarnings.length > 0) {
+          alert(`Account approved, but ${result.emailWarnings.join(' ')}`);
+        }
+        onApproved();
+        onClose();
+        return;
+      }
       await updateUserStatus(user.id, {
         status: 'active',
         role,
@@ -57,7 +66,8 @@ function ApprovalModal({ isOpen, onClose, user, onApproved }: { isOpen: boolean;
 
   const handleReject = async () => {
     try {
-      await removeUser(user.id);
+      if (user.isRegistrationRequest) await removeRegistrationRequest(user.id);
+      else await removeUser(user.id);
       onApproved();
       onClose();
     } catch (error) {
@@ -285,6 +295,7 @@ interface UserData {
   onlineStatus?: string;
   lastSeen?: number;
   avatar?: string;
+  isRegistrationRequest?: boolean;
 }
 
 interface ProfileModalProps {
@@ -554,6 +565,7 @@ function ProfileModal({ isOpen, onClose, userData, onUpdateUserData, onRemoveUse
 // ============================================================================
 export function UserManagement() {
   const [userList, setUserList] = useState<UserData[]>(users);
+  const [registrationRequests, setRegistrationRequests] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
@@ -593,6 +605,10 @@ export function UserManagement() {
       console.error('Failed to subscribe to user updates:', error);
     });
   }, []);
+
+  useEffect(() => subscribeRegistrationRequests(setRegistrationRequests, (error) => {
+    console.error('Failed to subscribe to registration requests:', error);
+  }), []);
 
   const filteredUsers = userList.filter(user =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -672,7 +688,20 @@ export function UserManagement() {
 
   const totalUsers = userList.filter(u => u.status !== 'rejected').length;
   const onlineUsers = userList.filter(u => u.status !== 'rejected' && String(u.onlineStatus || '').toLowerCase() === 'online').length;
-  const pendingUsers = userList.filter(u => u.status === 'pending');
+  const pendingUsers = [
+    ...userList.filter((user) => user.status === 'pending'),
+    ...registrationRequests
+      .filter((request) => request.status === 'pending')
+      .map((request) => ({
+        ...request,
+        phone: '',
+        role: 'staff',
+        department: request.team || 'Operations',
+        joinedDate: request.createdAt || '',
+        lastLogin: '',
+        isRegistrationRequest: true,
+      } as UserData)),
+  ];
 
   return (
     <div className="space-y-6">

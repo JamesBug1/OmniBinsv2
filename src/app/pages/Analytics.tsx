@@ -12,6 +12,7 @@ import { TrendingUp, Clock, MapPin, Droplet } from 'lucide-react';
 import { ref, onValue } from 'firebase/database';
 import { db, subscribeSensorData } from '../../firebase';
 import { normalizeSensorRecord } from '../../lib/gasConversion';
+import { isSensorLinkedToRegisteredBin } from '../../lib/binSensorLink';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
 const HIGH_FILL_THRESHOLD_PERCENT = 80;
@@ -41,16 +42,11 @@ const getFillPercent = (record: any) => {
   return Math.max(0, Math.min(100, value));
 };
 
-const hasGasReading = (record: any) => [
-  record.nh3,
-  record.ch4,
-  record.mq135,
-  record.mq135_ppm,
-  record.mq_135,
-  record.mq4,
-  record.mq4_ppm,
-  record.mq_4,
-].some((value) => value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value)));
+const isNeutralizerOn = (record: any) => {
+  const value = record.neutralizer ?? record.neutralizer_status ?? record.mist ?? record.mist_status ?? record.mist_on ?? record.mistOn;
+  if (typeof value === 'boolean') return value;
+  return ['ON', 'TRUE', '1', 'ACTIVE', 'MISTING'].includes(String(value ?? '').trim().toUpperCase());
+};
 
 const getTimestampMs = (value: unknown) => {
   const timestamp = parseTime(value);
@@ -185,7 +181,8 @@ export function Analytics() {
           ...normalizeSensorRecord(item.id, item),
           id: item.id,
           branch: item.branch,
-          hasGasReading: hasGasReading(item),
+          mq135Adc: toNumber(item.mq135_adc ?? item.mq_135_adc ?? item.mq135 ?? item.mq_135 ?? item['MQ-135']),
+          mq4Adc: toNumber(item.mq4_adc ?? item.mq_4_adc ?? item.mq4 ?? item.mq_4 ?? item['MQ-4']),
         };
         const key = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown').trim();
         const prev = dedupedByNode.get(key);
@@ -220,8 +217,8 @@ export function Analytics() {
       });
 
       const latest = Array.from(latestByBin.values());
-      const highRiskAreas = latest.filter((item) => item.weight >= 60 || item.nh3 > 25 || item.ch4 > 50).length;
-      const neutralizationUsage = latest.filter((item) => item.nh3 > 35 || item.ch4 > 70).length;
+      const highRiskAreas = latest.filter((item) => item.mq135Adc > 1500 || item.mq4Adc > 1200).length;
+      const neutralizationUsage = sensorRecords.filter(isNeutralizerOn).length;
 
       const top = Array.from(readingsBySensor, ([sensor, readings]) => {
         readings.sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
@@ -244,21 +241,16 @@ export function Analytics() {
         .sort((a, b) => b.fillEvents - a.fillEvents)
         .slice(0, 5);
 
-      const areaMap = new Map<string, { area: string; avgRotIndex: number; count: number }>();
-      latest.forEach((item) => {
-        if (!item.hasGasReading || !(item.nh3 > 25 || item.ch4 > 50)) return;
-        const area = String(item.node ?? item.location ?? item.id ?? 'Unknown');
-        const avgRotIndex = ((toNumber(item.nh3) + toNumber(item.ch4)) / 2) || 0;
-        const existing = areaMap.get(area) ?? { area, avgRotIndex: 0, count: 0 };
-        existing.avgRotIndex += avgRotIndex;
-        existing.count += 1;
-        areaMap.set(area, existing);
-      });
-
-      const areas = Array.from(areaMap.values())
-        .map((item) => ({ area: item.area, avgRotIndex: Number((item.avgRotIndex / (item.count || 1)).toFixed(1)) }))
+      const areas = latest
+        .map((item) => {
+          const matchedBin = registeredBins.find((bin) => isSensorLinkedToRegisteredBin(item, [bin]));
+          return {
+            area: String(item.node ?? matchedBin?.id ?? item.location ?? item.id ?? 'Unknown'),
+            avgRotIndex: Number(((toNumber(item.nh3) + toNumber(item.ch4)) / 2).toFixed(1)),
+          };
+        })
         .sort((a, b) => b.avgRotIndex - a.avgRotIndex)
-        .slice(0, 5);
+        .slice(0, 6);
 
       setSummary((prev) => ({
         ...prev,
@@ -291,16 +283,16 @@ export function Analytics() {
       icon: Clock,
     },
     {
-      label: 'High Risk Areas',
+      label: 'High Rot Index',
       value: summary.highRiskAreas,
-      hint: 'Bins above threshold or high gas',
+      hint: 'MQ-135 > 1500 or MQ-4 > 1200 ADC',
       accent: 'text-orange-500',
       icon: MapPin,
     },
     {
       label: 'Neutralization Usage',
       value: summary.neutralizationUsage,
-      hint: 'Strong gas detection events',
+      hint: 'Sensor readings with mist ON',
       accent: 'text-cyan-500',
       icon: Droplet,
     },
@@ -424,7 +416,7 @@ export function Analytics() {
               </ResponsiveContainer>
             ) : (
               <p className="flex h-[250px] items-center justify-center text-sm text-gray-500">
-                No sensors currently meet the high Rot Index gas thresholds
+                No registered bin sensor readings available yet
               </p>
             )}
           </CardContent>

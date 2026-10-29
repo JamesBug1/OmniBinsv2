@@ -40,6 +40,22 @@ function parseSensorTimestamp(value: unknown): number {
 const SENSOR_HISTORY_BRANCHES = ['sensor_data', 'sensor_data1', 'sensor_data2', 'sensor_data3', 'sensor_data4'];
 const normalizeSensorName = (value: unknown) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+function getMaintenanceCompletionTime(task: any): number {
+  const value = task.completedAt ?? task.finishedAt ?? task.completed_at ?? task.finished_at;
+  const timestamp = typeof value === 'number' ? value : Date.parse(String(value ?? ''));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function formatMaintenanceDate(value: unknown): string {
+  const timestamp = typeof value === 'number' ? value : Date.parse(String(value ?? ''));
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString() : 'None';
+}
+
+function getLastMaintenanceLabel(value: unknown): string {
+  const label = String(value ?? '').trim();
+  return !label || ['just added', 'unknown'].includes(label.toLowerCase()) ? 'None' : label;
+}
+
 async function findSensorRecordPaths(bin: any): Promise<string[]> {
   const branchRecords = await Promise.all(SENSOR_HISTORY_BRANCHES.map(async (branch) => {
     const snapshot = await get(ref(db, branch));
@@ -417,7 +433,7 @@ const AddBinModal = ({
         id: normalizedNewId,
         sensorDataName: activeSensorDataName.trim(),
         sensors: hasMatchingSensor ? 'online' : 'offline',
-        lastMaintenance: 'Just added',
+        lastMaintenance: 'None',
         status: hasMatchingSensor ? 'good' : 'critical',
         scheduledDate: null,
       };
@@ -570,7 +586,8 @@ export function Maintenance() {
           sensors: value?.sensors ?? 'online',
           battery: value?.battery ?? 100,
           connectivity: value?.connectivity ?? 'excellent',
-          lastMaintenance: value?.lastMaintenance ?? 'Unknown',
+          lastMaintenance: getLastMaintenanceLabel(value?.lastMaintenance),
+          lastMaintenanceAt: value?.lastMaintenanceAt ?? null,
           status: value?.status ?? 'good',
           scheduledDate: value?.scheduledDate ?? null,
           assignedTo: value?.assignedTo ?? 'Unassigned',
@@ -768,14 +785,23 @@ export function Maintenance() {
 
   const derivedSystems = systems.map((system) => {
     const liveSensor = liveSensors.find((sensor) => isSensorLinkedToBin(sensor, system));
-    const maintenanceTask = tasks
+    const systemMaintenanceTasks = tasks
       .filter((task) => {
         const taskType = String(task.type ?? task.taskType ?? '').trim().toLowerCase();
         const taskBinId = String(task.binId ?? task.bin_id ?? task.bin ?? task.node ?? '').trim();
-        const taskStatus = String(task.status ?? '').trim().toLowerCase();
-        return taskType === 'maintenance' && taskBinId === String(system.id) && taskStatus !== 'completed' && taskStatus !== 'cancelled';
-      })
+        return taskType === 'maintenance' && taskBinId === String(system.id);
+      });
+    const maintenanceTask = systemMaintenanceTasks
+      .filter((task) => !['completed', 'cancelled'].includes(String(task.status ?? '').trim().toLowerCase()))
       .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))[0];
+    const completedMaintenance = systemMaintenanceTasks
+      .filter((task) => String(task.status ?? '').trim().toLowerCase() === 'completed')
+      .sort((a, b) => getMaintenanceCompletionTime(b) - getMaintenanceCompletionTime(a))[0];
+    const lastMaintenance = completedMaintenance
+      ? formatMaintenanceDate(completedMaintenance.completedAt ?? completedMaintenance.finishedAt ?? completedMaintenance.completed_at ?? completedMaintenance.finished_at)
+      : system.lastMaintenanceAt
+        ? formatMaintenanceDate(system.lastMaintenanceAt)
+        : getLastMaintenanceLabel(system.lastMaintenance);
     const assignedUser = maintenanceTask?.assignedUserId
       ? users.find((user) => String(user.id) === String(maintenanceTask.assignedUserId))
       : undefined;
@@ -791,6 +817,7 @@ export function Maintenance() {
 
     return {
       ...system,
+      lastMaintenance,
       sensors: hasLiveSensor && sensorIsRecent ? 'online' : 'offline',
       status: nextStatus,
       liveSensor,
@@ -950,9 +977,10 @@ export function Maintenance() {
                     <Button
                       type="button"
                       variant="outline"
+                      size="sm"
                       onClick={() => handleRequestSensorHistoryCleanup(system)}
                       disabled={cleaningSensorBinId !== null}
-                      className="border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                      className="h-9 px-3 text-xs border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
                     >
                       <Trash2 className="mr-1 h-3 w-3" />
                       {cleaningSensorBinId === String(system.id) ? 'Scanning...' : 'Clear data'}
@@ -960,7 +988,7 @@ export function Maintenance() {
                     <Button
                       onClick={() => handleRemoveSystem(system.id)}
                       size="sm"
-                      className="bg-red-600 hover:bg-red-700 text-white text-xs"
+                      className="h-9 px-3 bg-red-600 hover:bg-red-700 text-white text-xs"
                     >
                       <Trash2 className="h-3 w-3 mr-1" />
                       Remove

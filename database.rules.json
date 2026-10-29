@@ -29,6 +29,31 @@
       ".read": "auth != null",
       ".write": "auth != null"
     },
+    "registrationRequests": {
+      ".read": "auth != null",
+      "$requestId": {
+        ".write": "auth != null || (auth == null && !data.exists() && newData.exists())",
+        ".validate": "newData.hasChildren(['name', 'email', 'team', 'status', 'createdAt'])",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100"
+        },
+        "email": {
+          ".validate": "newData.isString() && newData.val().matches(/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/) && newData.val().length <= 254"
+        },
+        "team": {
+          ".validate": "newData.isString() && newData.val().length <= 100"
+        },
+        "status": {
+          ".validate": "newData.val() == 'pending'"
+        },
+        "createdAt": {
+          ".validate": "newData.isString()"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
     "teams": {
       ".read": "auth != null",
       ".write": "auth != null"
@@ -41,7 +66,31 @@
       ".read": "auth != null",
       ".write": "auth != null"
     },
+    "weeklyCollectionSchedules": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
     "bins": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "alerts": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "systemAlertStates": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "alertArchive": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "alertReadStates": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "alertDismissedStates": {
       ".read": "auth != null",
       ".write": "auth != null"
     },

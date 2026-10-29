@@ -16,7 +16,7 @@ const campusCenter = {
   lat: 9.8826944,
   lng: 123.5993333,
 };
-const SENSOR_OFFLINE_AFTER_MS = 5 * 60 * 1000;
+const SENSOR_OFFLINE_AFTER_MS = 20 * 1000;
 
 function getSensorTimestamp(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {

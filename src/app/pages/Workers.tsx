@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { User, Phone, Mail, CheckCircle, Clock, Search, X, Users, Plus, Trash2, ClipboardList } from 'lucide-react';
 import { getUsers, createTeam, getTeams, removeTeam, addUsersToTeam } from '../../firebase';
-import { get, onValue, ref, push, set, remove, update } from 'firebase/database';
+import { get, onValue, ref, push, remove, update } from 'firebase/database';
 import { db } from '../../firebase';
 
 interface WorkerData {
@@ -50,6 +50,7 @@ interface TeamScheduleModalProps {
     binId: string;
     date: string;
     taskType: 'maintenance' | 'collection';
+    repeatWeekly: boolean;
     description?: string;
   }) => Promise<void>;
 }
@@ -59,9 +60,10 @@ interface AssignedTaskModalProps {
   tasks: any[];
   onClose: () => void;
   onRemoveTask: (task: any) => void;
+  onCompleteMaintenance: (task: any) => void;
 }
 
-function AssignedTaskModal({ assignee, tasks, onClose, onRemoveTask }: AssignedTaskModalProps) {
+function AssignedTaskModal({ assignee, tasks, onClose, onRemoveTask, onCompleteMaintenance }: AssignedTaskModalProps) {
   if (!assignee) return null;
 
   const assignedTasks = tasks.filter((task) => {
@@ -112,13 +114,21 @@ function AssignedTaskModal({ assignee, tasks, onClose, onRemoveTask }: AssignedT
                       {String(task.status ?? 'pending')}
                     </Badge>
                   </div>
-                  <p className="text-sm capitalize text-gray-600">{task.type ?? 'collection'} · Scheduled {task.scheduledDate ?? task.scheduledTime ?? 'date not set'}</p>
+                  <p className="text-sm capitalize text-gray-600">{task.type ?? 'collection'} · Scheduled {task.scheduledDate ?? task.scheduledTime ?? 'date not set'}{task.recurrence === 'weekly' ? ' · Repeats weekly' : ''}</p>
                   {task.description && <p className="break-words text-sm text-gray-500">{task.description}</p>}
                 </div>
-                <Button type="button" variant="outline" onClick={() => onRemoveTask(task)} className="shrink-0 border-red-200 text-red-600 hover:bg-red-50">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Remove task
-                </Button>
+                <div className="flex shrink-0 gap-2">
+                  {String(task.type ?? task.taskType ?? '').toLowerCase() === 'maintenance' && task.status !== 'completed' && (
+                    <Button type="button" variant="outline" onClick={() => onCompleteMaintenance(task)} className="border-green-300 text-green-700 hover:bg-green-50">
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                      Mark finished
+                    </Button>
+                  )}
+                  <Button type="button" variant="outline" onClick={() => onRemoveTask(task)} className="border-red-200 text-red-600 hover:bg-red-50">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove task
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -132,6 +142,7 @@ function TeamScheduleModal({ isOpen, onClose, assignee, bins, onSchedule }: Team
   const [selectedBinId, setSelectedBinId] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [taskType, setTaskType] = useState<'maintenance' | 'collection'>('collection');
+  const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [description, setDescription] = useState('');
 
   useEffect(() => {
@@ -139,6 +150,7 @@ function TeamScheduleModal({ isOpen, onClose, assignee, bins, onSchedule }: Team
       setSelectedBinId(bins[0]?.id ?? '');
       setScheduledDate('');
       setTaskType('collection');
+      setRepeatWeekly(false);
       setDescription('');
     }
   }, [isOpen, bins]);
@@ -164,6 +176,7 @@ function TeamScheduleModal({ isOpen, onClose, assignee, bins, onSchedule }: Team
       binId: selectedBinId,
       date: scheduledDate,
       taskType,
+      repeatWeekly: taskType === 'collection' && repeatWeekly,
       description,
     });
 
@@ -206,13 +219,32 @@ function TeamScheduleModal({ isOpen, onClose, assignee, bins, onSchedule }: Team
                   <Label className="text-gray-700">Task Type</Label>
                   <select
                     value={taskType}
-                    onChange={(e) => setTaskType(e.target.value as 'maintenance' | 'collection')}
+                    onChange={(e) => {
+                      const nextTaskType = e.target.value as 'maintenance' | 'collection';
+                      setTaskType(nextTaskType);
+                      if (nextTaskType !== 'collection') setRepeatWeekly(false);
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm text-gray-900"
                   >
                     <option value="collection">Schedule Trash Collection</option>
                     <option value="maintenance">Schedule Maintenance</option>
                   </select>
                 </div>
+
+                {taskType === 'collection' && (
+                  <label className="flex items-start gap-3 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={repeatWeekly}
+                      onChange={(event) => setRepeatWeekly(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    <span>
+                      <span className="block font-medium">Repeat weekly</span>
+                      <span className="text-xs text-gray-500">Creates a collection task every 7 days until removed.</span>
+                    </span>
+                  </label>
+                )}
 
                 <div className="space-y-2">
                   <Label className="text-gray-700">Select Bin</Label>
@@ -720,17 +752,49 @@ export function Workers() {
     }
   };
 
+  const handleRemoveWorkerFromTeam = async (team: any, workerId: string) => {
+    if (!team?.id || !workerId) return;
+    const worker = workerList.find((item) => item.id === workerId);
+    if (!window.confirm(`Remove ${worker?.name ?? 'this worker'} from ${team.name}?`)) return;
+
+    try {
+      const teamRef = ref(db, `teams/${team.id}`);
+      const teamSnapshot = await get(teamRef);
+      const currentTeam = teamSnapshot.val() ?? {};
+      const memberIds = currentTeam.workerIds ?? currentTeam.worker_ids ?? [];
+      const updatedMemberIds = Array.isArray(memberIds)
+        ? memberIds.map(String).filter((id: string) => id !== String(workerId))
+        : [];
+      const updates: Record<string, any> = {
+        [`teams/${team.id}/workerIds`]: updatedMemberIds,
+      };
+
+      const workerSnapshot = await get(ref(db, `users/${workerId}/team`));
+      if (String(workerSnapshot.val() ?? '') === String(team.name ?? '')) {
+        updates[`users/${workerId}/team`] = '';
+      }
+
+      await update(ref(db), updates);
+      await Promise.all([loadTeams(), loadWorkers()]);
+    } catch (error) {
+      console.error('Failed to remove worker from team:', error);
+      alert('Unable to remove this worker from the team. Please try again.');
+    }
+  };
+
   const handleScheduleTask = async ({
     assignee,
     binId,
     date,
     taskType,
+    repeatWeekly,
     description,
   }: {
     assignee: { id?: string; name: string; email?: string; type: 'team' | 'worker' };
     binId: string;
     date: string;
     taskType: 'maintenance' | 'collection';
+    repeatWeekly: boolean;
     description?: string;
   }) => {
     if (assignee.type === 'worker') {
@@ -742,8 +806,33 @@ export function Workers() {
     }
 
     try {
+      if (taskType === 'collection') {
+        const [tasksSnapshot, schedulesSnapshot] = await Promise.all([
+          get(ref(db, 'tasks')),
+          get(ref(db, 'weeklyCollectionSchedules')),
+        ]);
+        const hasUnfinishedCollection = Object.values(tasksSnapshot.val() ?? {}).some((value: any) => {
+          const taskBinId = String(value?.binId ?? value?.bin_id ?? value?.bin ?? value?.node ?? '');
+          const taskTypeValue = String(value?.type ?? value?.taskType ?? '').toLowerCase();
+          return taskBinId === binId && taskTypeValue === 'collection' && String(value?.status ?? '').toLowerCase() !== 'completed';
+        });
+        const hasWeeklyReservation = Object.values(schedulesSnapshot.val() ?? {}).some((value: any) =>
+          value?.active === true && String(value?.binId ?? '') === binId
+        );
+
+        if (hasUnfinishedCollection || hasWeeklyReservation) {
+          alert('This bin already has an unfinished or recurring collection assignment. Complete or remove it before assigning another one.');
+          return;
+        }
+      }
+
       const newTaskRef = push(ref(db, 'tasks'));
       const taskId = newTaskRef.key;
+      const scheduleRef = repeatWeekly && taskType === 'collection'
+        ? push(ref(db, 'weeklyCollectionSchedules'))
+        : null;
+      const nextRunDate = new Date(`${date}T00:00:00.000Z`);
+      nextRunDate.setUTCDate(nextRunDate.getUTCDate() + 7);
       const taskRecord = {
         id: taskId,
         type: taskType,
@@ -759,28 +848,47 @@ export function Workers() {
             }
           : { assignedTeam: assignee.name }),
         scheduledDate: date,
+        ...(scheduleRef?.key ? { recurrence: 'weekly', scheduleId: scheduleRef.key } : {}),
         description: description || '',
         status: 'pending',
         createdAt: new Date().toISOString(),
       };
 
-      await set(newTaskRef, taskRecord);
-
+      const writes: Record<string, any> = {
+        [`tasks/${taskId}`]: taskRecord,
+        [`bins/${binId}/${taskType === 'collection' ? 'collectionScheduledDate' : 'scheduledDate'}`]: date,
+        [`bins/${binId}/assignedTo`]: assignee.name,
+      };
       if (taskType === 'collection') {
-        await set(ref(db, `collections/${taskId}`), {
+        writes[`collections/${taskId}`] = {
           ...taskRecord,
           status: 'pending',
           assignedTo: assignee.name,
           scheduledTime: date,
           createdAt: taskRecord.createdAt,
-        });
-        await set(ref(db, `bins/${binId}/collectionScheduledDate`), date);
-      } else {
-        await set(ref(db, `bins/${binId}/scheduledDate`), date);
+        };
+        if (scheduleRef?.key) {
+          writes[`weeklyCollectionSchedules/${scheduleRef.key}`] = {
+            binId,
+            assignedTo: assignee.name,
+            ...(assignee.type === 'worker'
+              ? {
+                  assignedUserId: assignee.id,
+                  assignedUserName: assignee.name,
+                  assignedUserEmail: assignee.email || '',
+                }
+              : { assignedTeam: assignee.name }),
+            description: description || '',
+            active: true,
+            nextRunDate: nextRunDate.toISOString().slice(0, 10),
+            lastTaskId: taskId,
+            createdAt: taskRecord.createdAt,
+          };
+        }
       }
 
-      await set(ref(db, `bins/${binId}/assignedTo`), assignee.name);
-      alert(`Task scheduled for ${assignee.type} "${assignee.name}" on bin ${binId}.`);
+      await update(ref(db), writes);
+      alert(`Task scheduled for ${assignee.type} "${assignee.name}" on bin ${binId}${scheduleRef ? ' and will repeat weekly' : ''}.`);
     } catch (error) {
       console.error('Failed to schedule task:', error);
       alert('Unable to save this schedule. Please try again.');
@@ -799,6 +907,7 @@ export function Workers() {
       await Promise.all([
         remove(ref(db, `tasks/${taskId}`)),
         remove(ref(db, `collections/${taskId}`)),
+        ...(task.scheduleId ? [remove(ref(db, `weeklyCollectionSchedules/${task.scheduleId}`))] : []),
       ]);
 
       const binId = String(task.binId ?? task.bin ?? task.bin_id ?? task.node ?? '');
@@ -823,6 +932,34 @@ export function Workers() {
     } catch (error) {
       console.error('Failed to remove assigned task:', error);
       alert('Unable to remove this task. Please try again.');
+    }
+  };
+
+  const handleCompleteMaintenanceTask = async (task: any) => {
+    const taskId = String(task.id ?? task.taskId ?? task.task_id ?? '');
+    const binId = String(task.binId ?? task.bin_id ?? task.bin ?? task.node ?? '');
+    if (!taskId || !binId) {
+      alert('This maintenance task is missing its task or bin ID.');
+      return;
+    }
+
+    const completedAt = new Date().toISOString();
+    try {
+      await update(ref(db), {
+        [`tasks/${taskId}/status`]: 'completed',
+        [`tasks/${taskId}/completedAt`]: completedAt,
+        [`tasks/${taskId}/finishedAt`]: completedAt,
+        [`bins/${binId}/lastMaintenanceAt`]: completedAt,
+        [`bins/${binId}/lastMaintenance`]: new Date(completedAt).toLocaleDateString(),
+      });
+      setTaskList((previous) => previous.map((item) =>
+        String(item.id ?? item.taskId ?? item.task_id) === taskId
+          ? { ...item, status: 'completed', completedAt, finishedAt: completedAt }
+          : item
+      ));
+    } catch (error) {
+      console.error('Failed to complete maintenance task:', error);
+      alert('Unable to mark maintenance as finished. Please try again.');
     }
   };
 
@@ -1019,10 +1156,22 @@ export function Workers() {
                     <Badge className="bg-blue-500 text-white">Team</Badge>
                   </div>
                   <div className="text-sm text-gray-600 space-y-1">
-                    {(team.workerIds ?? []).map((id: string) => {
+                    {(team.workerIds ?? team.worker_ids ?? []).map((id: string) => {
                       const worker = workerList.find(w => w.id === id);
                       return (
-                        <p key={id}>{worker ? worker.name : `Worker ID: ${id}`}</p>
+                        <div key={id} className="flex items-center justify-between gap-2">
+                          <p className="truncate">{worker ? worker.name : `Worker ID: ${id}`}</p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Remove ${worker?.name ?? `worker ${id}`} from ${team.name}`}
+                            onClick={() => void handleRemoveWorkerFromTeam(team, String(id))}
+                            className="h-8 shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       );
                     })}
                   </div>
@@ -1038,21 +1187,23 @@ export function Workers() {
                     </Button>
                     <Button
                       type="button"
+                      variant="outline"
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedTeamForAddMembers(team);
                       }}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      className="flex-1 border-gray-300"
                     >
                       Add User
                     </Button>
                     <Button
                       type="button"
+                      variant="outline"
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedAssigneeForSchedule({ ...team, type: 'team' });
                       }}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      className="flex-1 border-gray-300"
                     >
                       Schedule
                     </Button>
@@ -1087,6 +1238,7 @@ export function Workers() {
         tasks={taskList}
         onClose={() => setSelectedAssigneeForTasks(null)}
         onRemoveTask={handleRemoveAssignedTask}
+        onCompleteMaintenance={handleCompleteMaintenanceTask}
       />
     </div>
   );

@@ -712,7 +712,7 @@ export function LandingPage({ onLoginSuccess }: LandingPageProps) {
       <BenefitsSection />
       <FooterSection />
       <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLoginSuccess={onLoginSuccess} onRequestSignup={() => setIsSignupOpen(true)} />
-      <SignupModal isOpen={isSignupOpen} onClose={() => setIsSignupOpen(false)} onSignupSuccess={() => { setIsSignupOpen(false); onLoginSuccess?.(); }} />
+      <SignupModal isOpen={isSignupOpen} onClose={() => setIsSignupOpen(false)} />
       <ContactModal isOpen={isContactOpen} onClose={() => setIsContactOpen(false)} />
     </>
   );

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ref, onValue, update } from 'firebase/database';
+import { get, ref, onValue, update } from 'firebase/database';
 import { db } from '../../firebase';
 import { parseNumber } from '../../lib/gasConversion';
 import { isSensorLinkedToBin } from '../../lib/binSensorLink';
@@ -13,13 +13,13 @@ import { MapPin, Weight, Wind, Users, RefreshCw, Trash2, AlertTriangle, CheckCir
 const FULL_KG      = 50;
 const NEAR_FULL_KG = 35;
 const COLLECTION_COMPLETE_MAX_WEIGHT_KG = 10;
-const SENSOR_OFFLINE_AFTER_MS = 5 * 60 * 1000;
+const SENSOR_OFFLINE_AFTER_MS = 20 * 1000;
 
 interface RawSensorRecord {
   distance:    number | string;
-  gas_level:   string;   // "NORMAL" | "HIGH" | etc.
-  mq135:       number;   // NH₃ proxy (ppm)
-  mq4:         number;   // CH₄ proxy (ppm)
+  gas_level:   string;
+  mq135:       number;   // MQ-135 ADC reading
+  mq4:         number;   // MQ-4 ADC reading
   neutralizer: string;   // "ON" | "OFF"
   node:        string;   // "D1"
   location?:   string;
@@ -36,8 +36,11 @@ interface BinRecord {
   gas_level:   string;
   mq135:       number;
   mq4:         number;
+  mq135Level:  string;
+  mq4Level:    string;
   neutralizer: string;
   node:        string;
+  location:    string;
   rssi:        number;
   timestamp:   number;
   weight:      number;
@@ -46,15 +49,46 @@ interface BinRecord {
   status:      string;   // "Full" | "Near Full" | "High Gas Level" | "Normal"
 }
 
+function deriveGasLevel(mq135: number, mq4: number): string {
+  if (mq135 > 1500 || mq4 > 1200) return 'High';
+  if (mq135 > 600 || mq4 > 500) return 'Elevated';
+  return 'Low baseline';
+}
+
+function deriveSensorGasLevel(value: number, elevatedAbove: number, highAbove: number): string {
+  if (value > highAbove) return 'High';
+  if (value > elevatedAbove) return 'Elevated';
+  return 'Low baseline';
+}
+
 function deriveStatus(weight: number, gas_level: string): string {
   if (weight >= FULL_KG)      return 'Full';
   if (weight >= NEAR_FULL_KG) return 'Near Full';
-  if (gas_level && gas_level.toUpperCase() !== 'NORMAL') return 'High Gas Level';
+  if (gas_level === 'High') return 'High Gas Level';
+  if (gas_level === 'Elevated') return 'Elevated Gas Level';
   return 'Normal';
 }
 
 function deriveCapacity(weight: number): number {
   return Math.min(100, Math.round((weight / FULL_KG) * 100));
+}
+
+function getLocationText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'object' && value !== null) {
+    const location = value as Record<string, unknown>;
+    const text = location.address ?? location.name ?? location.place ?? location.label;
+    return typeof text === 'string' ? text.trim() : '';
+  }
+  return '';
+}
+
+function normalizeNeutralizerState(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'ON' : 'OFF';
+  const state = String(value ?? '').trim().toUpperCase();
+  if (['ON', 'TRUE', '1', 'ACTIVE', 'MISTING'].includes(state)) return 'ON';
+  if (['OFF', 'FALSE', '0', 'INACTIVE', 'IDLE', ''].includes(state)) return 'OFF';
+  return state;
 }
 
 function formatDistance(distance: number | string): string {
@@ -108,7 +142,9 @@ function getLatestPerNode(raw: Record<string, any>): BinRecord[] {
 
     const node = String(value.node ?? value.location ?? pushKey);
     const weight = parseNumber(value.weight ?? value.weight_kg ?? value.wasteWeight ?? value.waste ?? 0);
-    const gas_level = String(value.gas_level ?? value.gasLevel ?? value.status ?? 'NORMAL');
+    const mq135 = parseNumber(value.mq135_adc ?? value.mq_135_adc ?? value.mq135 ?? value.mq_135 ?? 0);
+    const mq4 = parseNumber(value.mq4_adc ?? value.mq_4_adc ?? value.mq4 ?? value.mq_4 ?? 0);
+    const gas_level = deriveGasLevel(mq135, mq4);
 
     const rawTime = value.time ?? value.timestamp ?? value.updatedAt ?? 0;
     const parsedTime = normalizeTimestamp(parseTimestamp(rawTime));
@@ -119,10 +155,15 @@ function getLatestPerNode(raw: Record<string, any>): BinRecord[] {
         ? String(value.distance ?? value.distance_cm).trim()
         : parseNumber(value.distance ?? value.distance_cm ?? 0),
       gas_level,
-      mq135:       parseNumber(value.mq135 ?? value.mq135_ppm ?? value.mq_135 ?? 0),
-      mq4:         parseNumber(value.mq4 ?? value.mq4_ppm ?? value.mq_4 ?? 0),
-      neutralizer: String(value.neutralizer ?? value.neutralizer_status ?? 'OFF'),
+      mq135,
+      mq4,
+      mq135Level:  deriveSensorGasLevel(mq135, 600, 1500),
+      mq4Level:    deriveSensorGasLevel(mq4, 500, 1200),
+      neutralizer: normalizeNeutralizerState(
+        value.neutralizer ?? value.neutralizer_status ?? value.mist ?? value.mist_status ?? value.mist_on ?? value.mistOn
+      ),
       node,
+      location:    getLocationText(value.location ?? value.address),
       rssi:        parseNumber(value.rssi ?? value.rssi_dbm ?? 0),
       timestamp:   parsedTime,
       weight,
@@ -222,7 +263,7 @@ export function BinMonitoring() {
   const completionWritesInProgress = useRef(new Set<string>());
 
   useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    const interval = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -257,6 +298,7 @@ export function BinMonitoring() {
       case 'Full':           return 'bg-red-500';
       case 'Near Full':      return 'bg-yellow-400';
       case 'High Gas Level': return 'bg-orange-400';
+      case 'Elevated Gas Level': return 'bg-yellow-400';
       default:               return 'bg-green-500';
     }
   };
@@ -308,6 +350,24 @@ export function BinMonitoring() {
     }
 
     try {
+      const [tasksSnapshot, schedulesSnapshot] = await Promise.all([
+        get(ref(db, 'tasks')),
+        get(ref(db, 'weeklyCollectionSchedules')),
+      ]);
+      const hasUnfinishedCollection = Object.values(tasksSnapshot.val() ?? {}).some((value: any) => {
+        const taskBinId = String(value?.binId ?? value?.bin_id ?? value?.bin ?? value?.node ?? '');
+        const taskType = String(value?.type ?? value?.taskType ?? '').toLowerCase();
+        return taskBinId === binId && taskType === 'collection' && String(value?.status ?? '').toLowerCase() !== 'completed';
+      });
+      const hasWeeklyReservation = Object.values(schedulesSnapshot.val() ?? {}).some((value: any) =>
+        value?.active === true && String(value?.binId ?? '') === binId
+      );
+
+      if (hasUnfinishedCollection || hasWeeklyReservation) {
+        alert('This bin already has an unfinished or recurring collection assignment. Complete or remove it before assigning another one.');
+        return;
+      }
+
       const collectionKey = `${binId}-${Date.now()}`;
       const taskRow = {
         id: collectionKey,
@@ -392,13 +452,13 @@ export function BinMonitoring() {
         setRegisteredBins(
           data
             ? Object.entries(data).map(([key, val]: [string, any]) => ({
+                ...val,
                 id:       key,
-                location: val.location ?? '',
+                location: getLocationText(val.location ?? val.address ?? val.name),
                 status:   val.status   ?? 'good',
                 node:     val.node ?? val.sensorDataName ?? val.sensorNode ?? val.sensorId ?? '',
                 sensorDataName: val.sensorDataName ?? val.node ?? val.sensorNode ?? val.sensorId ?? '',
                 sensorNode: val.sensorNode ?? val.sensorDataName ?? val.node ?? val.sensorId ?? '',
-                ...val,
               }))
             : []
         );
@@ -601,7 +661,7 @@ export function BinMonitoring() {
                       <CardTitle className="text-lg">{bin.id}</CardTitle>
                       <div className="flex items-center gap-1 text-sm text-gray-500 mt-0.5">
                         <MapPin className="h-3.5 w-3.5" />
-                        {bin.location || 'Unknown location'}
+                        {bin.location || sensor.location || 'Unknown location'}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -651,7 +711,10 @@ export function BinMonitoring() {
                         MQ135 · NH₃
                       </div>
                       <p className="text-lg font-bold">
-                        <LiveValue value={`${sensor.mq135} ppm`} />
+                        <LiveValue value={`${sensor.mq135} ADC`} />
+                      </p>
+                      <p className={`text-xs font-semibold ${sensor.mq135Level === 'High' ? 'text-red-600' : sensor.mq135Level === 'Elevated' ? 'text-yellow-600' : 'text-green-600'}`}>
+                        {sensor.mq135Level} (200–600 low, 601–1500 elevated, &gt;1500 high)
                       </p>
                     </div>
                     <div>
@@ -660,7 +723,10 @@ export function BinMonitoring() {
                         MQ4 · CH₄
                       </div>
                       <p className="text-lg font-bold">
-                        <LiveValue value={`${sensor.mq4} ppm`} />
+                        <LiveValue value={`${sensor.mq4} ADC`} />
+                      </p>
+                      <p className={`text-xs font-semibold ${sensor.mq4Level === 'High' ? 'text-red-600' : sensor.mq4Level === 'Elevated' ? 'text-yellow-600' : 'text-green-600'}`}>
+                        {sensor.mq4Level} (100–500 low, 501–1200 elevated, &gt;1200 high)
                       </p>
                     </div>
                   </div>
@@ -730,7 +796,7 @@ export function BinMonitoring() {
                           <CardTitle className="text-lg text-gray-900">{bin.id}</CardTitle>
                           <div className="flex items-center gap-1 text-sm text-gray-500 mt-0.5">
                             <MapPin className="h-3.5 w-3.5" />
-                            {bin.location || 'Unknown location'}
+                            {bin.location || sensor?.location || 'Unknown location'}
                           </div>
                         </div>
                         <Badge className="bg-gray-500 text-white">Offline</Badge>

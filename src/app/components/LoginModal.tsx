@@ -177,7 +177,7 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
                   <button type="button" onClick={() => { onClose(); setIsTermsOpen(true); }} className="text-sm text-gray-500 underline">Terms &amp; Conditions</button>
                 </div>
               </form>
-              <SignupModal isOpen={isSignupOpen} onClose={() => setIsSignupOpen(false)} onSignupSuccess={() => { setIsSignupOpen(false); onLoginSuccess?.(); }} />
+              <SignupModal isOpen={isSignupOpen} onClose={() => setIsSignupOpen(false)} />
               <TermsModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
               {/* Password reset modal */}
               {/* lazy include */}

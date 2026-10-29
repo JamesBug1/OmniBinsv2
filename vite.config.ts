@@ -46,6 +46,8 @@ export default defineConfig({
             '@radix-ui/react-tooltip',
           ],
           'chart-vendor': ['recharts'],
+          'map-vendor': ['leaflet', 'react-leaflet'],
+          'firebase-vendor': ['firebase/app', 'firebase/auth', 'firebase/database'],
         },
       },
     },
@@ -67,7 +69,7 @@ export default defineConfig({
     // Ignore large virtualenv and other heavy folders to avoid hitting
     // the OS file watcher limit (ENOSPC).
     watch: {
-      ignored: ['**/backend/.venv/**', '**/.venv/**', '**/node_modules/**', '**/.git/**'],
+      ignored: ['**/backend/**', '**/.venv/**', '**/node_modules/**', '**/.git/**'],
     },
   },
 })
