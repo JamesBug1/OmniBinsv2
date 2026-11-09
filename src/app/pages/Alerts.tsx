@@ -32,8 +32,8 @@ const SUPABASE_URL = 'https://btlzsocklhrytsmmlphi.supabase.co';
 const SUPABASE_REPORT_BUCKET = 'report-images';
 const FULL_BIN_WEIGHT_KG = 50;
 const HIGH_GAS_WINDOW_MS = 60 * 60 * 1000;
-const HIGH_MQ135_ADC = 1500;
-const HIGH_MQ4_ADC = 1200;
+const HIGH_MQ135_PPM = 1500;
+const HIGH_MQ4_PPM = 1200;
 
 function getSafeDatabaseKey(value: string): string {
   return value.replace(/[.#$/\[\]]/g, '_');
@@ -557,9 +557,9 @@ export function Alerts() {
 
         const highReadings = sortedRecords.filter(({ sensor, timestamp }) => {
           if (timestamp < cutoff) return false;
-          const mq135 = Number(sensor.mq135_adc ?? sensor.mq_135_adc ?? sensor.mq135 ?? sensor.mq_135 ?? sensor['MQ-135'] ?? 0);
-          const mq4 = Number(sensor.mq4_adc ?? sensor.mq_4_adc ?? sensor.mq4 ?? sensor.mq_4 ?? sensor['MQ-4'] ?? 0);
-          return mq135 > HIGH_MQ135_ADC || mq4 > HIGH_MQ4_ADC || String(sensor.gas_level ?? sensor.gasLevel ?? '').trim().toUpperCase() === 'HIGH';
+          const mq135Ppm = Number(sensor.nh3 ?? sensor.mq135_ppm ?? sensor.mq_135_ppm ?? sensor.mq135 ?? sensor.mq_135 ?? 0);
+          const mq4Ppm = Number(sensor.ch4 ?? sensor.mq4_ppm ?? sensor.mq_4_ppm ?? sensor.mq4 ?? sensor.mq_4 ?? 0);
+          return mq135Ppm > HIGH_MQ135_PPM || mq4Ppm > HIGH_MQ4_PPM || String(sensor.gas_level ?? sensor.gasLevel ?? '').trim().toUpperCase() === 'HIGH';
         });
 
         if (highReadings.length < 3 || gasAlertWritesInProgress.current.has(node)) continue;
@@ -576,9 +576,9 @@ export function Alerts() {
           if (result.committed && result.snapshot.val()?.alertId === alertId && !cancelled) {
             await persistAlert(alertId, {
               type: 'sensor_high_gas',
-              severity: 'warning',
+              severity: 'critical',
               bin: node,
-              message: `High gas level detected in ${highReadings.length} readings within one hour (MQ-135 > ${HIGH_MQ135_ADC} ADC or MQ-4 > ${HIGH_MQ4_ADC} ADC).`,
+              message: `High gas level detected in ${highReadings.length} readings within one hour (NH₃ > ${HIGH_MQ135_PPM} ppm or CH₄ > ${HIGH_MQ4_PPM} ppm). Immediate collection required.`,
               time: new Date(highReadings[highReadings.length - 1].timestamp).toISOString(),
               stateKey: `system-high-gas-${safeNode}-${now}`,
             });

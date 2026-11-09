@@ -18,8 +18,8 @@ const SENSOR_OFFLINE_AFTER_MS = 20 * 1000;
 interface RawSensorRecord {
   distance:    number | string;
   gas_level:   string;
-  mq135:       number;   // MQ-135 ADC reading
-  mq4:         number;   // MQ-4 ADC reading
+  mq135:       number;   // NH3 ppm from calibrated MQ-135
+  mq4:         number;   // CH4 ppm from calibrated MQ-4
   neutralizer: string;   // "ON" | "OFF"
   node:        string;   // "D1"
   location?:   string;
@@ -142,8 +142,8 @@ function getLatestPerNode(raw: Record<string, any>): BinRecord[] {
 
     const node = String(value.node ?? value.location ?? pushKey);
     const weight = parseNumber(value.weight ?? value.weight_kg ?? value.wasteWeight ?? value.waste ?? 0);
-    const mq135 = parseNumber(value.mq135_adc ?? value.mq_135_adc ?? value.mq135 ?? value.mq_135 ?? 0);
-    const mq4 = parseNumber(value.mq4_adc ?? value.mq_4_adc ?? value.mq4 ?? value.mq_4 ?? 0);
+    const mq135 = parseNumber(value.nh3 ?? value.mq135_ppm ?? value.mq_135_ppm ?? value.mq135 ?? value.mq_135 ?? value.mq135_adc ?? value.mq_135_adc ?? 0);
+    const mq4 = parseNumber(value.ch4 ?? value.mq4_ppm ?? value.mq_4_ppm ?? value.mq4 ?? value.mq_4 ?? value.mq4_adc ?? value.mq_4_adc ?? 0);
     const gas_level = deriveGasLevel(mq135, mq4);
 
     const rawTime = value.time ?? value.timestamp ?? value.updatedAt ?? 0;
@@ -711,10 +711,10 @@ export function BinMonitoring() {
                         MQ135 · NH₃
                       </div>
                       <p className="text-lg font-bold">
-                        <LiveValue value={`${sensor.mq135} ADC`} />
+                        <LiveValue value={`${sensor.mq135} ppm`} />
                       </p>
                       <p className={`text-xs font-semibold ${sensor.mq135Level === 'High' ? 'text-red-600' : sensor.mq135Level === 'Elevated' ? 'text-yellow-600' : 'text-green-600'}`}>
-                        {sensor.mq135Level} (200–600 low, 601–1500 elevated, &gt;1500 high)
+                        {sensor.mq135Level} (200–600 ppm low, 601–1500 elevated, &gt;1500 high)
                       </p>
                     </div>
                     <div>
@@ -723,10 +723,10 @@ export function BinMonitoring() {
                         MQ4 · CH₄
                       </div>
                       <p className="text-lg font-bold">
-                        <LiveValue value={`${sensor.mq4} ADC`} />
+                        <LiveValue value={`${sensor.mq4} ppm`} />
                       </p>
                       <p className={`text-xs font-semibold ${sensor.mq4Level === 'High' ? 'text-red-600' : sensor.mq4Level === 'Elevated' ? 'text-yellow-600' : 'text-green-600'}`}>
-                        {sensor.mq4Level} (100–500 low, 501–1200 elevated, &gt;1200 high)
+                        {sensor.mq4Level} (100–500 ppm low, 501–1200 elevated, &gt;1200 high)
                       </p>
                     </div>
                   </div>

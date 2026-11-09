@@ -20,9 +20,9 @@ const ROT_LEVELS = [
   { label: 'High', color: '#ef4444' },
 ];
 
-function getRotLevel(mq135Adc: number, mq4Adc: number): string {
-  if (mq135Adc > 1500 || mq4Adc > 1200) return 'High';
-  if (mq135Adc > 600 || mq4Adc > 500) return 'Elevated';
+function getRotLevel(mq135Ppm: number, mq4Ppm: number): string {
+  if (mq135Ppm > 1500 || mq4Ppm > 1200) return 'High';
+  if (mq135Ppm > 600 || mq4Ppm > 500) return 'Elevated';
   return 'Low baseline';
 }
 
@@ -60,8 +60,8 @@ export function RotIndex() {
         id: item.id,
         branch: item.branch,
         node: String(item.node ?? '').trim(),
-        mq135Adc: Number(item.mq135_adc ?? item.mq_135_adc ?? item.mq135 ?? item.mq_135 ?? item['MQ-135'] ?? 0) || 0,
-        mq4Adc: Number(item.mq4_adc ?? item.mq_4_adc ?? item.mq4 ?? item.mq_4 ?? item['MQ-4'] ?? 0) || 0,
+        mq135Ppm: Number(item.nh3 ?? item.mq135_ppm ?? item.mq_135_ppm ?? item.mq135 ?? item.mq_135 ?? 0) || 0,
+        mq4Ppm: Number(item.ch4 ?? item.mq4_ppm ?? item.mq_4_ppm ?? item.mq4 ?? item.mq_4 ?? 0) || 0,
         timestampMs: parseSensorTimestamp(item.timestamp ?? item.time ?? item.updatedAt),
       })).filter((record) => record.node);
       const readingsByHourAndBin = Array.from({ length: 24 }, () => new Map<string, {
@@ -117,7 +117,7 @@ export function RotIndex() {
         ? latestRecords.reduce((sum, rec) => sum + rec.ch4, 0) / latestRecords.length
         : 0;
       const highRotBinCount = latestRecords.filter((rec) => {
-        return getRotLevel(rec.mq135Adc, rec.mq4Adc) === 'High';
+        return getRotLevel(rec.mq135Ppm, rec.mq4Ppm) === 'High';
       }).length;
 
       const topRot = Array.from(
@@ -129,7 +129,7 @@ export function RotIndex() {
                 key: `${sensorLabel}::${rec.id}`,
                 label: sensorLabel,
                 bin: sensorLabel,
-                level: getRotLevel(rec.mq135Adc, rec.mq4Adc),
+                level: getRotLevel(rec.mq135Ppm, rec.mq4Ppm),
                 rotIndex: (rec.nh3 + rec.ch4) / 2,
               };
             })
@@ -244,9 +244,9 @@ export function RotIndex() {
               <div key={label} className="flex items-center gap-2 text-sm text-gray-700">
                 <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: color }} />
                 <span>{label}</span>
-                {index === 0 && <span className="text-xs text-gray-500">(MQ-135 200–600, MQ-4 100–500 ADC)</span>}
-                {index === 1 && <span className="text-xs text-gray-500">(MQ-135 601–1500, MQ-4 501–1200 ADC)</span>}
-                {index === 2 && <span className="text-xs text-gray-500">(MQ-135 &gt; 1500, MQ-4 &gt; 1200 ADC)</span>}
+                {index === 0 && <span className="text-xs text-gray-500">(MQ-135 200–600, MQ-4 100–500 ppm)</span>}
+                {index === 1 && <span className="text-xs text-gray-500">(MQ-135 601–1500, MQ-4 501–1200 ppm)</span>}
+                {index === 2 && <span className="text-xs text-gray-500">(MQ-135 &gt; 1500, MQ-4 &gt; 1200 ppm)</span>}
               </div>
             ))}
           </div>

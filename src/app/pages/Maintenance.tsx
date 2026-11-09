@@ -991,7 +991,7 @@ export function Maintenance() {
                       className="h-9 px-3 bg-red-600 hover:bg-red-700 text-white text-xs"
                     >
                       <Trash2 className="h-3 w-3 mr-1" />
-                      Remove
+                      Remove Bin
                     </Button>
                   </div>
                 </div>

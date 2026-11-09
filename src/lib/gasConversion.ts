@@ -49,17 +49,19 @@ export const convertMq135ToNh3 = (mq135Value: number, r0 = 10): number => {
 export const normalizeSensorRecord = (key: string, value: any): GasSensorRecord => {
   const weight = parseNumber(value.weight ?? value.weight_kg ?? value.wasteWeight ?? 0);
   const capacity = parseNumber(value.capacity ?? value.fillLevel ?? 0);
-  const rawMq135 = parseNumber(value.mq135 ?? 0);
-  const rawMq4 = parseNumber(value.mq4 ?? 0);
+  const rawMq135Adc = parseNumber(value.mq135_adc ?? value.mq_135_adc ?? 0);
+  const rawMq4Adc = parseNumber(value.mq4_adc ?? value.mq_4_adc ?? 0);
   const r0Mq135 = parseNumber(value.mq135_r0 ?? 10);
   const r0Mq4 = parseNumber(value.mq4_r0 ?? 10);
 
-  const nh3 = value.nh3 != null
-    ? parseNumber(value.nh3)
-    : convertMq135ToNh3(rawMq135, r0Mq135);
-  const ch4 = value.ch4 != null
-    ? parseNumber(value.ch4)
-    : convertMq4ToCh4(rawMq4, r0Mq4);
+  const calibratedNh3 = value.nh3 ?? value.mq135_ppm ?? value.mq_135_ppm ?? value.mq135 ?? value.mq_135;
+  const calibratedCh4 = value.ch4 ?? value.mq4_ppm ?? value.mq_4_ppm ?? value.mq4 ?? value.mq_4;
+  const nh3 = calibratedNh3 != null
+    ? parseNumber(calibratedNh3)
+    : convertMq135ToNh3(rawMq135Adc, r0Mq135);
+  const ch4 = calibratedCh4 != null
+    ? parseNumber(calibratedCh4)
+    : convertMq4ToCh4(rawMq4Adc, r0Mq4);
   const distance = parseNumber(value.distance ?? value.distance_cm ?? 0);
   const timestamp = parseNumber(value.timestamp ?? value.time ?? value.updatedAt ?? 0);
 

@@ -181,8 +181,8 @@ export function Analytics() {
           ...normalizeSensorRecord(item.id, item),
           id: item.id,
           branch: item.branch,
-          mq135Adc: toNumber(item.mq135_adc ?? item.mq_135_adc ?? item.mq135 ?? item.mq_135 ?? item['MQ-135']),
-          mq4Adc: toNumber(item.mq4_adc ?? item.mq_4_adc ?? item.mq4 ?? item.mq_4 ?? item['MQ-4']),
+          mq135Ppm: toNumber(item.nh3 ?? item.mq135_ppm ?? item.mq_135_ppm ?? item.mq135 ?? item.mq_135),
+          mq4Ppm: toNumber(item.ch4 ?? item.mq4_ppm ?? item.mq_4_ppm ?? item.mq4 ?? item.mq_4),
         };
         const key = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown').trim();
         const prev = dedupedByNode.get(key);
@@ -217,7 +217,7 @@ export function Analytics() {
       });
 
       const latest = Array.from(latestByBin.values());
-      const highRiskAreas = latest.filter((item) => item.mq135Adc > 1500 || item.mq4Adc > 1200).length;
+      const highRiskAreas = latest.filter((item) => item.mq135Ppm > 1500 || item.mq4Ppm > 1200).length;
       const neutralizationUsage = sensorRecords.filter(isNeutralizerOn).length;
 
       const top = Array.from(readingsBySensor, ([sensor, readings]) => {
@@ -285,7 +285,7 @@ export function Analytics() {
     {
       label: 'High Rot Index',
       value: summary.highRiskAreas,
-      hint: 'MQ-135 > 1500 or MQ-4 > 1200 ADC',
+      hint: 'MQ-135 > 1500 or MQ-4 > 1200 ppm',
       accent: 'text-orange-500',
       icon: MapPin,
     },

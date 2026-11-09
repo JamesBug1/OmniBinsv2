@@ -90,8 +90,8 @@ export function Dashboard() {
           ...normalizeSensorRecord(item.id, item),
           id: item.id,
           branch: item.branch,
-          mq135Adc: Number(item.mq135_adc ?? item.mq_135_adc ?? item.mq135 ?? item.mq_135 ?? item['MQ-135'] ?? 0) || 0,
-          mq4Adc: Number(item.mq4_adc ?? item.mq_4_adc ?? item.mq4 ?? item.mq_4 ?? item['MQ-4'] ?? 0) || 0,
+          mq135Ppm: Number(item.nh3 ?? item.mq135_ppm ?? item.mq_135_ppm ?? item.mq135 ?? item.mq_135 ?? 0) || 0,
+          mq4Ppm: Number(item.ch4 ?? item.mq4_ppm ?? item.mq_4_ppm ?? item.mq4 ?? item.mq_4 ?? 0) || 0,
         };
         const key = String(normalized.node ?? normalized.location ?? normalized.id ?? 'unknown-bin').trim();
         const existing = dedupedByNode.get(key);
@@ -113,7 +113,7 @@ export function Dashboard() {
 
       const latestBinRecords = Array.from(latestByBin.values());
       const fullBins = latestBinRecords.filter((rec) => rec.weight >= 80).length;
-      const highRotIndex = latestBinRecords.filter((rec) => rec.mq135Adc > 1500 || rec.mq4Adc > 1200).length;
+      const highRotIndex = latestBinRecords.filter((rec) => rec.mq135Ppm > 1500 || rec.mq4Ppm > 1200).length;
       const activeNeutralization = sensorRecords.filter(isNeutralizerOn).length;
 
       const points = latestBinRecords
@@ -209,7 +209,7 @@ export function Dashboard() {
         {[
           { title: 'Total Smart Bins', value: stats.totalBins, desc: 'Deployed across the area', icon: Trash2, iconColor: 'text-green-600' },
           { title: 'Full / Near Full', value: stats.fullBins, desc: 'Require immediate collection', icon: AlertCircle, iconColor: 'text-red-600' },
-          { title: 'High Rot Index', value: stats.highRotIndex, desc: 'MQ-135 > 1500 or MQ-4 > 1200 ADC', icon: Wind, iconColor: 'text-orange-600' },
+          { title: 'High Rot Index', value: stats.highRotIndex, desc: 'MQ-135 > 1500 or MQ-4 > 1200 ppm', icon: Wind, iconColor: 'text-orange-600' },
           { title: 'Active Neutralization', value: stats.activeNeutralization, desc: 'Sensor readings with mist ON', icon: Droplet, iconColor: 'text-blue-600' },
         ].map((stat, idx) => (
           <motion.div key={stat.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: idx * 0.1 }}>
